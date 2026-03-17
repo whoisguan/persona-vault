@@ -157,9 +157,23 @@
   <div class="loading" id="loading"><span class="spinner"></span>正在解密，请稍候...</div>
 
   <div class="actions" id="actions">
-    <button onclick="copyWork()">复制（工作版）</button>
-    <button onclick="copyFull()">复制（含私人信息）</button>
+    <button onclick="copyCapsule()" style="background:#2563eb;">复制 Capsule（推荐）</button>
+    <button onclick="startPacketImport()">分段导入</button>
+    <button onclick="copyWork()">复制全文（工作版）</button>
     <button onclick="lockVault()" style="background:#6b2020;">锁定</button>
+  </div>
+
+  <!-- Packet import panel -->
+  <div id="packetPanel" style="display:none; margin-bottom:1rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+      <span id="packetProgress" style="font-size:0.85rem; color:#888;">Packet 1/1</span>
+      <div style="display:flex; gap:0.5rem;">
+        <button onclick="prevPacket()" id="btnPrev" disabled style="padding:0.4rem 0.8rem; font-size:0.85rem;">上一段</button>
+        <button onclick="nextPacket()" id="btnNext" style="padding:0.4rem 0.8rem; font-size:0.85rem;">下一段</button>
+      </div>
+    </div>
+    <div style="background:#16213e; border:1px solid #2a2a5e; border-radius:8px; padding:1rem; max-height:200px; overflow-y:auto; font-family:monospace; font-size:0.8rem; white-space:pre-wrap; word-wrap:break-word;" id="packetContent"></div>
+    <button onclick="copyPacket()" style="width:100%; margin-top:0.5rem; background:#2563eb;" id="copyPacketBtn">复制当前段</button>
   </div>
 
   <div class="content-area" id="contentArea"></div>
@@ -172,6 +186,9 @@
 let decryptedFiles = null;
 let manifest = null;
 let bundleData = null;
+let packets = [];
+let currentPacket = 0;
+const PACKET_MAX = 2048; // bytes per packet, conservative for mobile
 
 async function init() {
   try {
@@ -336,13 +353,7 @@ async function copyWork() {
   showToast('已复制工作版（不含私人信息）');
 }
 
-async function copyFull() {
-  if (!decryptedFiles) return;
-  if (!confirm('确认包含私人信息（生日、八字等）？\n仅在你信任当前AI平台时使用。')) return;
-  const text = buildPromptText(decryptedFiles);
-  await navigator.clipboard.writeText(text);
-  showToast('已复制完整版（含私人信息）');
-}
+// copyFull removed — replaced by capsule + packet import
 
 function showError(msg) {
   const el = document.getElementById('errorMsg');
@@ -365,7 +376,119 @@ function showToast(msg) {
   setTimeout(() => el.classList.remove('show'), 2000);
 }
 
+// --- Capsule: hardcoded sanitized summary ---
+const CAPSULE_TEXT = `以下是我的个人设定，请按此和我对话。
+
+[identity]
+role: Strategy planner at Italian retail chain (~150 employees, 10 stores)
+actual_role: Solo CTO + data architect + PM (zero tech team)
+tech_stack: React 18 + Vite + Tailwind | FastAPI + Python | MySQL + SQL Server | Power BI
+base: Emilia-Romagna, Italy
+
+[language]
+thinking: 中文
+work_env: 意大利语
+code_comments: English
+mixed: 自然切换三语
+
+[communication]
+- 直接给方案和行动步骤，不铺垫
+- 先结论后理由
+- 结构化输出：表格、编号列表
+- 发现问题坦诚说，不美化
+- 有多个选项时列出让我选
+
+[projects]
+- angel-kpi: KPI evaluation system (React+FastAPI+Supabase)
+- italiavoce: Italian oral training app
+- BI project: ETL data warehouse (SQL Server)
+
+[taboo]
+- 不要空洞鼓励或升华式总结
+- 不要自己做决定，列选项让我选
+- 方向有问题直接说
+
+## 记忆保存规则
+当对话中出现重要决策、新规律、教训时，请整理成记忆笔记并生成保存链接：
+https://mixia.duckdns.org/api/memory/form?title=[URL编码标题]&body=[URL编码摘要]&source=[AI平台名]`;
+
+async function copyCapsule() {
+  await navigator.clipboard.writeText(CAPSULE_TEXT);
+  showToast('已复制 Capsule（≤2KB，手机友好）');
+}
+
+function buildPackets(files) {
+  const fullText = buildPromptText(filterWork(files));
+  const parts = [];
+  const lines = fullText.split('\\n');
+  let current = '';
+
+  for (const line of lines) {
+    const testStr = current ? current + '\\n' + line : line;
+    if (new TextEncoder().encode(testStr).length > PACKET_MAX && current) {
+      parts.push(current);
+      current = line;
+    } else {
+      current = testStr;
+    }
+  }
+  if (current) parts.push(current);
+
+  // Add protocol header and ACK footer
+  const total = parts.length + 2;
+  const result = [];
+  result.push(`[Memory Import Protocol]
+我将分 ${total} 段发送我的个人上下文。
+规则：每收到一段，只回复 "ACK N/${total}"。
+全部发完后，请总结你收到的关键信息。
+开始。`);
+
+  for (let i = 0; i < parts.length; i++) {
+    result.push(`[Packet ${i + 2}/${total}]\\n\\n${parts[i]}`);
+  }
+
+  result.push(`[最后一段 — 导入完成]
+所有 ${total} 段已发送完毕。请确认：
+1. 你收到了哪些主要内容？
+2. 我的核心项目有哪些？
+3. 和我沟通的关键规则是什么？
+确认后我们开始正常对话。`);
+
+  return result;
+}
+
+function startPacketImport() {
+  if (!decryptedFiles) return;
+  packets = buildPackets(decryptedFiles);
+  currentPacket = 0;
+  document.getElementById('packetPanel').style.display = 'block';
+  showCurrentPacket();
+}
+
+function showCurrentPacket() {
+  document.getElementById('packetContent').textContent = packets[currentPacket];
+  document.getElementById('packetProgress').textContent = `Packet ${currentPacket + 1} / ${packets.length}`;
+  document.getElementById('btnPrev').disabled = currentPacket === 0;
+  document.getElementById('btnNext').disabled = currentPacket === packets.length - 1;
+  document.getElementById('copyPacketBtn').textContent = '复制当前段';
+  document.getElementById('copyPacketBtn').style.background = '#2563eb';
+}
+
+function prevPacket() { if (currentPacket > 0) { currentPacket--; showCurrentPacket(); } }
+function nextPacket() { if (currentPacket < packets.length - 1) { currentPacket++; showCurrentPacket(); } }
+
+async function copyPacket() {
+  await navigator.clipboard.writeText(packets[currentPacket]);
+  const btn = document.getElementById('copyPacketBtn');
+  btn.textContent = '已复制！';
+  btn.style.background = '#14532d';
+  setTimeout(() => { btn.textContent = '复制当前段'; btn.style.background = '#2563eb'; }, 1500);
+}
+
 function lockVault() {
+  packets = [];
+  currentPacket = 0;
+  document.getElementById('packetPanel').style.display = 'none';
   decryptedFiles = null;
   document.getElementById('contentArea').innerHTML = '';
   document.getElementById('contentArea').style.display = 'none';
