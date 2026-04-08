@@ -2680,7 +2680,7 @@ export default config;
 执行前先安装以下依赖：
 
 ```bash
-npm install react-resizable-panels reactflow zustand next-themes lucide-react clsx tailwind-merge
+npm install react-resizable-panels @xyflow/react zustand next-themes lucide-react clsx tailwind-merge
 npm install -D @types/node @types/react @types/react-dom typescript tailwindcss postcss autoprefixer
 ```
 

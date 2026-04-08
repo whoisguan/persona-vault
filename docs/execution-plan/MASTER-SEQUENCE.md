@@ -103,12 +103,21 @@
          pipeline/             # Pipeline 启动/停止/状态
          acceptance/           # 验收流程
          ai/                   # AI 调用代理入口
-       server/
-         services/             # 后端业务服务
-         workers/              # BullMQ Worker 定义
-         db/                   # 数据库 schema + migration
-         queue/                # BullMQ 队列配置
-         websocket/            # Socket.io 服务端
+       lib/
+         ai/                   # AI Provider适配器
+         engines/              # 需求引擎/地图引擎/代码生成引擎
+         translation/          # 业务翻译层
+         quality/              # 质量关卡（Lint/TypeCheck）
+         deploy/               # 构建部署服务
+         screenshot/           # Playwright截图服务
+         acceptance/           # 验收引擎
+         pipeline/             # Pipeline编排
+         services/             # 项目/DAG等业务服务
+         storage/              # R2对象存储
+         db/                   # Supabase Client + migration
+         queue/                # BullMQ队列配置 + workers/
+         socket/               # Socket.io独立服务端
+         auth.ts               # Supabase Auth封装
      ```
   3. 每个目录创建 `index.ts` 导出文件
 **验证：**
@@ -186,8 +195,8 @@
 **前置条件：** STEP-006完成
 **执行：**
   1. 创建 `src/lib/db/supabase.ts` — Supabase Client 单例（浏览器端+服务端+Admin三个实例）。代码参考 FIX-005b。
-  2. 创建 `src/lib/db/migrations/001_initial.sql` — 12张核心表的完整DDL。内容来自 `00-project-init.md` 第6节。
-  3. 在 Supabase Dashboard SQL Editor 中执行 `001_initial.sql`，创建所有表：
+  2. 创建 `src/lib/db/migrations/001_initial_schema.sql` — 12张核心表的完整DDL。内容来自 `00-project-init.md` 第6节。
+  3. 在 Supabase Dashboard SQL Editor 中执行 `001_initial_schema.sql`，创建所有表：
      - users、projects、nodes、edges、node_executions、file_records
      - pipeline_runs、acceptance_records、dag_events、dag_snapshots
      - cost_entries、dependency_manifests
@@ -199,7 +208,7 @@
   - `src/lib/db/supabase.ts` 导出 `createBrowserClient()`、`createServerClient()`、`createAdminClient()` 三个函数
 **产出：**
   - `src/lib/db/supabase.ts` — Supabase Client 单例
-  - `src/lib/db/migrations/001_initial.sql` — DDL文件
+  - `src/lib/db/migrations/001_initial_schema.sql` — DDL文件
   - `scripts/test-db-connection.mjs` — 连接测试脚本
   - `.env.local` 数据库配置
 **预估耗时：** 2小时
@@ -226,21 +235,28 @@
 
 ---
 
-### STEP-010: 配置WebSocket服务（Socket.io）
+### STEP-010: 配置WebSocket服务（Socket.io独立进程）
 **前置条件：** STEP-009完成
 **执行：**
-  1. `npm install socket.io`
-  2. 创建 `src/lib/socket/server.ts` -- Socket.io Server 集成到 Next.js（自定义 server 或通过 API Route 的 upgrade 处理）
-  3. 创建 `src/lib/socket/events.ts` -- 定义事件名常量和类型映射
+  1. `npm install socket.io socket.io-client @socket.io/redis-adapter redis concurrently`
+  2. 创建 `src/lib/socket/server.ts` -- Socket.io **独立Node.js进程**（端口3001），不集成到Next.js。使用Redis adapter支持多实例。代码参考 FIX-008a。
+  3. 创建 `src/lib/socket/events.ts` -- 统一事件名常量和TypeScript类型映射（前后端共用）
   4. 创建 `src/lib/socket/rooms.ts` -- 按 projectId 管理房间（join/leave/broadcast）
-  5. 创建 `src/hooks/useSocket.ts` -- 前端 Socket.io 连接 hook
+  5. 创建 `src/hooks/useSocket.ts` -- 前端用 `socket.io-client` 连接hook（连接 `localhost:3001`）
+  6. 在 `package.json` 添加启动脚本：
+     - `"ws:dev": "tsx watch src/lib/socket/server.ts"`
+     - `"dev:all": "concurrently \"npm run dev\" \"npm run ws:dev\""`
+  7. 创建 `Dockerfile.ws` -- WebSocket服务的Docker镜像。代码参考 FIX-R2-005。
 **验证：**
-  - 启动 dev server，前端 hook 可连接 WebSocket
+  - `npm run dev:all` 同时启动Next.js(3000)和Socket.io(3001)
+  - 浏览器控制台确认WebSocket连接成功
   - 房间广播测试：发送消息到特定 projectId 房间
 **产出：**
   - `src/lib/socket/` 下 3 个文件
   - `src/hooks/useSocket.ts`
-**预估耗时：** 2小时
+  - `Dockerfile.ws`
+  - `package.json` 新增3个scripts
+**预估耗时：** 2.5小时
 **可并行：** 否（依赖 Redis 连接用于房间管理）
 
 ---
@@ -252,7 +268,7 @@
   2. 创建 `src/lib/storage/storage.ts` -- R2 客户端封装
      - upload(key, data) / download(key) / delete(key) / getSignedUrl(key)
      - 目录结构遵循第12章 12.2.5：`/{projectId}/code/`、`/screenshots/`、`/snapshots/`、`/exports/`、`/prompts/`
-  3. 在 `.env` 添加 R2_ACCOUNT_ID、R2_ACCESS_KEY、R2_SECRET_KEY、R2_BUCKET_NAME
+  3. 在 `.env.local` 添加 CLOUDFLARE_ACCOUNT_ID、CLOUDFLARE_R2_ACCESS_KEY_ID、CLOUDFLARE_R2_SECRET_ACCESS_KEY、CLOUDFLARE_R2_BUCKET
 **验证：**
   - TypeScript 编译通过
   - 单元测试（mock S3）：upload + download 往返一致
@@ -346,7 +362,7 @@
 ### STEP-015: 数据库迁移 + 种子数据 + 冒烟测试
 **前置条件：** STEP-014完成
 **执行：**
-  1. 确认 STEP-008 中已在 Supabase Dashboard 执行了 `001_initial.sql`（12张表已创建）
+  1. 确认 STEP-008 中已在 Supabase Dashboard 执行了 `001_initial_schema.sql`（12张表已创建）
   2. 创建 `scripts/seed-data.mjs` — 使用 Supabase Admin Client 插入种子数据。代码参考 FIX-R2-002。
      - 用 `supabase.auth.admin.createUser()` 创建测试用户（不是直接INSERT users表）
      - 创建示例项目"电商平台" + 5个业务节点 + 4条边
@@ -443,9 +459,9 @@
 ### STEP-019: 对话面板 -- 消息列表UI
 **前置条件：** STEP-018完成
 **执行：**
-  1. 创建 `src/components/conversation/message-list.tsx` -- 消息列表，支持用户消息和 AI 消息两种样式
-  2. 创建 `src/components/conversation/message-bubble.tsx` -- 单条消息气泡（头像、内容、时间戳）
-  3. 创建 `src/components/conversation/ai-typing-indicator.tsx` -- AI 正在输入动画
+  1. 创建 `src/components/chat/message-list.tsx` -- 消息列表，支持用户消息和 AI 消息两种样式
+  2. 创建 `src/components/chat/message-bubble.tsx` -- 单条消息气泡（头像、内容、时间戳）
+  3. 创建 `src/components/chat/ai-typing-indicator.tsx` -- AI 正在输入动画
   4. 使用 scroll-area（shadcn）实现滚动，新消息自动滚动到底部
   5. AI 消息支持流式渲染（逐字符显示）
 **验证：**
@@ -453,7 +469,7 @@
   - 新消息添加时自动滚动到底部
   - AI 消息流式渲染效果正确
 **产出：**
-  - `src/components/conversation/` 下 3 个组件
+  - `src/components/chat/` 下 3 个组件
 **预估耗时：** 2小时
 **可并行：** 否（依赖布局框架）
 
@@ -462,16 +478,16 @@
 ### STEP-020: 对话面板 -- 输入区域
 **前置条件：** STEP-019完成
 **执行：**
-  1. 创建 `src/components/conversation/chat-input.tsx` -- 输入框（多行文本、自动扩展高度、Shift+Enter 换行、Enter 发送）
-  2. 创建 `src/components/conversation/quick-options.tsx` -- AI 追问的选择题选项（2-4 个按钮 + "自由补充"入口）
-  3. 创建 `src/components/conversation/skip-button.tsx` -- "差不多了" 跳过剩余追问按钮
+  1. 创建 `src/components/chat/chat-input.tsx` -- 输入框（多行文本、自动扩展高度、Shift+Enter 换行、Enter 发送）
+  2. 创建 `src/components/chat/quick-options.tsx` -- AI 追问的选择题选项（2-4 个按钮 + "自由补充"入口）
+  3. 创建 `src/components/chat/skip-button.tsx` -- "差不多了" 跳过剩余追问按钮
   4. 整合到对话面板：输入 -> ConversationStore -> 消息列表更新
 **验证：**
   - 输入文字，按 Enter 发送，消息出现在列表
   - 选择题选项点击后自动发送选择内容
   - "差不多了" 按钮发送跳过信号
 **产出：**
-  - `src/components/conversation/` 下新增 3 个组件
+  - `src/components/chat/` 下新增 3 个组件
 **预估耗时：** 2小时
 **可并行：** 否（依赖消息列表）
 
@@ -480,7 +496,7 @@
 ### STEP-021: 对话面板 -- 完整集成
 **前置条件：** STEP-020完成
 **执行：**
-  1. 创建 `src/components/conversation/conversation-panel.tsx` -- 组装消息列表 + 输入区域 + 选项区域
+  1. 创建 `src/components/chat/conversation-panel.tsx` -- 组装消息列表 + 输入区域 + 选项区域
   2. 对接 ConversationStore：
      - 发送消息 -> store.addMessage() -> 触发 AI API 调用
      - AI 响应流 -> store.appendToLastMessage() -> 消息列表实时更新
@@ -493,7 +509,7 @@
   - 端到端流程：输入文字 -> 显示在消息列表 -> AI 回复（mock）出现
   - 阶段切换：从自由输入切换到选择题模式
 **产出：**
-  - `src/components/conversation/conversation-panel.tsx`
+  - `src/components/chat/conversation-panel.tsx`
   - `src/hooks/useConversation.ts`
 **预估耗时：** 2小时
 **可并行：** 否
@@ -503,10 +519,10 @@
 ### STEP-022: 功能地图面板 -- ReactFlow基础集成
 **前置条件：** STEP-018完成
 **执行：**
-  1. 创建 `src/components/feature-map/feature-map-canvas.tsx` -- ReactFlow 画布容器
+  1. 创建 `src/components/dag/feature-map-canvas.tsx` -- ReactFlow 画布容器
      - 配置：缩放控制、minimap、背景网格
      - 连接 ProjectStore 的 nodes/edges 数据
-  2. 创建 `src/components/feature-map/controls-panel.tsx` -- 缩放控制按钮（放大、缩小、适配视图）
+  2. 创建 `src/components/dag/controls-panel.tsx` -- 缩放控制按钮（放大、缩小、适配视图）
   3. 创建 ReactFlow 的 nodeTypes 和 edgeTypes 注册
   4. 画布支持拖拽平移和滚轮缩放
 **验证：**
@@ -514,7 +530,7 @@
   - 缩放平移流畅
   - minimap 实时反映画布状态
 **产出：**
-  - `src/components/feature-map/` 下 2 个组件
+  - `src/components/dag/` 下 2 个组件
 **预估耗时：** 2小时
 **可并行：** 是（可与 STEP-019 ~ STEP-021 对话面板并行）
 
@@ -523,19 +539,19 @@
 ### STEP-023: 功能地图 -- 自定义业务节点组件
 **前置条件：** STEP-022完成
 **执行：**
-  1. 创建 `src/components/feature-map/nodes/business-node.tsx` -- 自定义 ReactFlow 节点
+  1. 创建 `src/components/dag/nodes/business-node.tsx` -- 自定义 ReactFlow 节点
      - 根据 BusinessNodeType 显示不同图标和颜色
      - feature: 蓝色拼图图标 / page: 绿色页面图标 / flow: 橙色流程图标 / data: 紫色数据库图标 / connect: 黄色连接图标 / rule: 红色规则图标 / milestone: 金色里程碑图标
      - 显示 PM 语言标签（非技术术语）
      - 显示当前业务状态（颜色编码 + 文字）
-  2. 创建 `src/components/feature-map/nodes/node-status-badge.tsx` -- 状态徽章（待规划/方案中/开发中/可预览 等）
+  2. 创建 `src/components/dag/nodes/node-status-badge.tsx` -- 状态徽章（待规划/方案中/开发中/可预览 等）
   3. Framer Motion 动画：节点状态变化时脉冲动画
 **验证：**
   - 7 种节点类型各有不同图标和颜色
   - 状态变化时动画触发
   - 标签全部为 PM 语言
 **产出：**
-  - `src/components/feature-map/nodes/` 下 2 个组件
+  - `src/components/dag/nodes/` 下 2 个组件
 **预估耗时：** 3小时
 **可并行：** 否
 
@@ -544,7 +560,7 @@
 ### STEP-024: 功能地图 -- 节点Hover详情卡片
 **前置条件：** STEP-023完成
 **执行：**
-  1. 创建 `src/components/feature-map/nodes/node-tooltip.tsx` -- Hover 弹出卡片
+  1. 创建 `src/components/dag/nodes/node-tooltip.tsx` -- Hover 弹出卡片
      - 功能描述
      - 预估开发时间（PM 语言，如"约15分钟"而非"3 nodes, ~90s each"）
      - 依赖说明（上游节点名称列表）
@@ -556,7 +572,7 @@
   - 卡片内容完整：描述、时间、依赖、状态
   - 卡片不超出画布可视区域
 **产出：**
-  - `src/components/feature-map/nodes/node-tooltip.tsx`
+  - `src/components/dag/nodes/node-tooltip.tsx`
 **预估耗时：** 1.5小时
 **可并行：** 否
 
@@ -565,7 +581,7 @@
 ### STEP-025: 功能地图 -- 自定义边组件
 **前置条件：** STEP-022完成
 **执行：**
-  1. 创建 `src/components/feature-map/edges/dependency-edge.tsx` -- 自定义 ReactFlow 边
+  1. 创建 `src/components/dag/edges/dependency-edge.tsx` -- 自定义 ReactFlow 边
      - hard 依赖：实线 + 箭头
      - soft 依赖：虚线 + 箭头
      - reference：点线 + 无箭头
@@ -575,7 +591,7 @@
   - 三种边类型视觉区分明确
   - Hover 边时高亮依赖链
 **产出：**
-  - `src/components/feature-map/edges/dependency-edge.tsx`
+  - `src/components/dag/edges/dependency-edge.tsx`
 **预估耗时：** 1.5小时
 **可并行：** 是（可与 STEP-023、STEP-024 并行）
 
@@ -609,13 +625,13 @@
   2. 连接时实时调用 dag-service.detectCycle() -> 如果会形成环，高亮冲突边并阻止连接
   3. 连接成功后自动创建边（调用 DAG API）
   4. 右键边 -> 删除依赖确认弹窗
-  5. 创建 `src/components/feature-map/connection-validation.tsx` -- 连接验证视觉反馈（绿色=可连接、红色=会形成环）
+  5. 创建 `src/components/dag/connection-validation.tsx` -- 连接验证视觉反馈（绿色=可连接、红色=会形成环）
 **验证：**
   - 拖拽创建依赖关系成功
   - 尝试创建环时：红色提示 + 连接失败
   - 删除边后 DAG 结构更新
 **产出：**
-  - `src/components/feature-map/connection-validation.tsx`
+  - `src/components/dag/connection-validation.tsx`
   - 更新 feature-map-canvas.tsx
 **预估耗时：** 2小时
 **可并行：** 否
@@ -625,7 +641,7 @@
 ### STEP-028: 功能地图面板 -- 完整集成
 **前置条件：** STEP-027完成
 **执行：**
-  1. 创建 `src/components/feature-map/feature-map-panel.tsx` -- 组装画布 + 控制面板 + 工具栏
+  1. 创建 `src/components/dag/feature-map-panel.tsx` -- 组装画布 + 控制面板 + 工具栏
   2. 工具栏：自动排列按钮、缩放控制、全屏切换
   3. 与 ProjectStore 完整连接：节点/边增删改 -> Store 更新 -> 画布重渲染
   4. 性能优化：50 个节点以下保持 60fps
@@ -635,7 +651,7 @@
   - 增删改操作后画布正确更新
   - Ctrl+Z 撤销最近操作
 **产出：**
-  - `src/components/feature-map/feature-map-panel.tsx`
+  - `src/components/dag/feature-map-panel.tsx`
 **预估耗时：** 2小时
 **可并行：** 否
 
@@ -644,11 +660,11 @@
 ### STEP-029: 进度面板 -- 实时日志流
 **前置条件：** STEP-018、STEP-010完成
 **执行：**
-  1. 创建 `src/components/progress/progress-panel.tsx` -- 进度面板容器
-  2. 创建 `src/components/progress/progress-entry.tsx` -- 单条进度日志
+  1. 创建 `src/components/pipeline/progress-panel.tsx` -- 进度面板容器
+  2. 创建 `src/components/pipeline/progress-entry.tsx` -- 单条进度日志
      - 图标（根据操作类型）+ 业务语言文本 + 时间戳
      - 例如："正在实现用户注册..."、"用户注册 完成"
-  3. 创建 `src/components/progress/progress-timeline.tsx` -- 时间线视图，带节点完成进度条
+  3. 创建 `src/components/pipeline/progress-timeline.tsx` -- 时间线视图，带节点完成进度条
   4. 通过 WebSocket 接收实时进度更新 -> PipelineStore -> 面板刷新
   5. 自动滚动到最新条目
 **验证：**
@@ -656,7 +672,7 @@
   - 进度条反映整体完成百分比
   - 所有文本为 PM 可理解的业务语言（无技术术语）
 **产出：**
-  - `src/components/progress/` 下 3 个组件
+  - `src/components/pipeline/` 下 3 个组件
 **预估耗时：** 2.5小时
 **可并行：** 是（可与 STEP-019 ~ STEP-028 并行）
 
@@ -956,7 +972,7 @@ AI Adapter、需求对话引擎、功能地图生成、代码生成引擎、翻�
      - 发送消息 -> POST /api/ai/conversation -> SSE 流式接收
      - 解析 AI 响应中的选项列表 -> 渲染 quick-options
      - 检测对话结束信号 -> 切换到功能地图生成阶段
-  2. 更新 `src/components/conversation/quick-options.tsx` -- 渲染真实追问选项
+  2. 更新 `src/components/chat/quick-options.tsx` -- 渲染真实追问选项
   3. 创建 `src/services/conversation-api.ts` -- 前端 API 封装
   4. 对话完成时自动触发功能地图生成（跳转到 STEP-044 的流程）
 **验证：**
