@@ -143,6 +143,7 @@ mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/journey
 mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/acceptance
 mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/settings
 mkdir -p src/app/\(dashboard\)/settings
+mkdir -p src/app/api/auth/\[...nextauth\]
 mkdir -p src/app/api/projects
 mkdir -p src/app/api/dag
 mkdir -p src/app/api/pipeline
@@ -674,7 +675,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=eyJhbG...your-service-role-key
 
 # ============================
-# 认证：使用 Supabase Auth（见FIX-R2-003）
+# NextAuth.js (必须)
 # ============================
 
 # ============================
@@ -1394,7 +1395,7 @@ export interface TechStackConfig {
   css: "tailwind";
   backend: "nextjs-api-routes";
   database: "supabase";
-  auth: "supabase";
+  auth: "nextauth";
   deployment: "cloudflare-pages";
 }
 
