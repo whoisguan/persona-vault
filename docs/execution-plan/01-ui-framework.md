@@ -12,15 +12,10 @@
 
 ```tsx
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { GeistSans } from 'geist/font/sans';
+import { GeistMono } from 'geist/font/mono';
 import { ThemeProvider } from '@/components/providers/ThemeProvider';
 import '@/styles/globals.css';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  display: 'swap',
-});
 
 export const metadata: Metadata = {
   title: 'MIXIA Builder',
@@ -33,11 +28,16 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="zh-CN" className={inter.variable} suppressHydrationWarning>
+    <html
+      lang="zh-CN"
+      className={`${GeistSans.variable} ${GeistMono.variable}`}
+      data-theme="vercel"
+      suppressHydrationWarning
+    >
       <body className="min-h-screen bg-background font-sans antialiased">
         <ThemeProvider
-          attribute="class"
-          defaultTheme="light"
+          attribute="data-theme"
+          defaultTheme="vercel"
           enableSystem={false}
           storageKey="mixia-builder-theme"
         >
@@ -2338,7 +2338,10 @@ export const useUIStore = create<UIState & UIActions>((set) => ({
 
 ## 7. 样式系统
 
-### 7.1 `tailwind.config.ts` — 自定义主题
+### 7.1 `tailwind.config.ts` — 自定义主题（多主题感知）
+
+> **设计规范来源：** `docs/design/DESIGN.md`
+> **所有颜色通过CSS变量注入**（见7.2节globals.css），`data-theme`属性切换主题。
 
 ```ts
 import type { Config } from 'tailwindcss';
@@ -2349,14 +2352,16 @@ const config: Config = {
     './components/**/*.{ts,tsx}',
     './lib/**/*.{ts,tsx}',
   ],
-  darkMode: 'class',
+  darkMode: ['selector', '[data-theme="linear"], [data-theme="supabase"]'],
   theme: {
     extend: {
       fontFamily: {
-        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+        /* 默认Geist（Vercel主题），其他主题通过globals.css覆盖 */
+        sans: ['var(--font-geist-sans)', 'var(--font-inter)', 'system-ui', 'sans-serif'],
+        mono: ['var(--font-geist-mono)', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       colors: {
-        /* 语义色（通过CSS变量实现暗色/亮色切换） */
+        /* 语义色 — 全部走CSS变量，主题切换时自动变化 */
         background: 'var(--color-background)',
         foreground: 'var(--color-foreground)',
         surface: 'var(--color-surface)',
@@ -2369,6 +2374,7 @@ const config: Config = {
           DEFAULT: 'var(--color-muted)',
           foreground: 'var(--color-muted-foreground)',
         },
+        link: 'var(--color-accent-link)',
 
         /* 规格书4.2节：8种业务状态色 */
         status: {
@@ -2381,6 +2387,21 @@ const config: Config = {
           confirmed: 'var(--color-status-confirmed)',
           live: 'var(--color-status-live)',
         },
+      },
+
+      /* 圆角 — 走CSS变量，主题可定义不同radius */
+      borderRadius: {
+        sm: 'var(--radius-sm)',
+        md: 'var(--radius-md)',
+        lg: 'var(--radius-lg)',
+        pill: 'var(--radius-pill)',
+      },
+
+      /* 阴影 — 走CSS变量，各主题shadow风格不同 */
+      boxShadow: {
+        'theme-border': 'var(--shadow-border)',
+        'theme-card': 'var(--shadow-card)',
+        'theme-elevated': 'var(--shadow-elevated)',
       },
 
       /* ring色（用于节点边框） */
@@ -2415,7 +2436,11 @@ const config: Config = {
 export default config;
 ```
 
-### 7.2 `styles/globals.css` — 全局CSS变量
+### 7.2 `styles/globals.css` — 全局CSS变量 + 多主题系统
+
+> **设计规范来源：** `docs/design/DESIGN.md` + `docs/design/themes/*.md`
+> **默认主题：** Vercel（黑白极简）。用户可在Settings中切换为 Linear / Stripe / Notion / Supabase。
+> **切换机制：** `data-theme` 属性切换CSS变量集，组件只引用变量不硬编码颜色。
 
 ```css
 @tailwind base;
@@ -2424,42 +2449,71 @@ export default config;
 
 @layer base {
   /* ========================================
-   * 亮色主题（默认）
+   * 默认主题：Vercel（黑白极简精工）
+   * 来源：docs/design/themes/vercel.md
    * ======================================== */
-  :root {
+  :root,
+  :root[data-theme="vercel"] {
     /* 基础语义色 */
     --color-background: #ffffff;
-    --color-foreground: #0f172a;
-    --color-surface: #f8fafc;
-    --color-border: #e2e8f0;
-    --color-primary: #2563eb;
+    --color-foreground: #171717;          /* Vercel Black, not pure black */
+    --color-surface: #fafafa;
+    --color-border: rgba(0, 0, 0, 0.08); /* shadow-as-border signature */
+    --color-primary: #171717;             /* dark CTA */
     --color-primary-foreground: #ffffff;
-    --color-muted: #f1f5f9;
-    --color-muted-foreground: #64748b;
+    --color-muted: #f5f5f5;
+    --color-muted-foreground: #666666;
+    --color-accent-link: #0072f5;
 
-    /* 规格书4.2节：业务状态色 */
-    --color-status-planning: #94a3b8;       /* 灰色：待规划 */
-    --color-status-designing: #60a5fa;      /* 蓝色：方案中 */
-    --color-status-pending-confirm: #fb923c; /* 橙色：待确认（脉冲闪烁） */
-    --color-status-developing: #3b82f6;     /* 蓝色：开发中（旋转动画） */
-    --color-status-previewable: #a855f7;    /* 紫色：可预览（脉冲闪烁） */
-    --color-status-needs-fix: #ef4444;      /* 红色：需修改 */
-    --color-status-confirmed: #22c55e;      /* 绿色：已确认 */
-    --color-status-live: #16a34a;           /* 深绿色：已上线 */
+    /* Vercel shadow system */
+    --shadow-border: 0px 0px 0px 1px rgba(0, 0, 0, 0.08);
+    --shadow-card: 0px 0px 0px 1px rgba(0, 0, 0, 0.08),
+                   0px 2px 2px rgba(0, 0, 0, 0.04),
+                   0px 0px 0px 1px #fafafa;
+    --shadow-elevated: 0px 0px 0px 1px rgba(0, 0, 0, 0.08),
+                       0px 2px 2px rgba(0, 0, 0, 0.04),
+                       0px 8px 8px -8px rgba(0, 0, 0, 0.04);
+
+    /* 圆角 */
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-pill: 9999px;
+
+    /* 规格书4.2节：业务状态色（跨主题通用） */
+    --color-status-planning: #94a3b8;
+    --color-status-designing: #60a5fa;
+    --color-status-pending-confirm: #fb923c;
+    --color-status-developing: #3b82f6;
+    --color-status-previewable: #a855f7;
+    --color-status-needs-fix: #ef4444;
+    --color-status-confirmed: #22c55e;
+    --color-status-live: #16a34a;
   }
 
   /* ========================================
-   * 暗色主题
+   * 主题：Linear（暗色开发者风）
+   * 来源：docs/design/themes/linear.md
    * ======================================== */
-  .dark {
-    --color-background: #0f172a;
-    --color-foreground: #f1f5f9;
-    --color-surface: #1e293b;
-    --color-border: #334155;
-    --color-primary: #3b82f6;
+  :root[data-theme="linear"] {
+    --color-background: #08090a;
+    --color-foreground: #f7f8f8;
+    --color-surface: #0f1011;
+    --color-border: rgba(255, 255, 255, 0.08);
+    --color-primary: #5e6ad2;
     --color-primary-foreground: #ffffff;
-    --color-muted: #1e293b;
-    --color-muted-foreground: #94a3b8;
+    --color-muted: #191a1b;
+    --color-muted-foreground: #8a8f98;
+    --color-accent-link: #7170ff;
+
+    --shadow-border: none;
+    --shadow-card: none;
+    --shadow-elevated: rgba(0, 0, 0, 0.4) 0px 2px 4px;
+
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --radius-pill: 9999px;
 
     --color-status-planning: #64748b;
     --color-status-designing: #60a5fa;
@@ -2471,10 +2525,134 @@ export default config;
     --color-status-live: #22c55e;
   }
 
+  /* ========================================
+   * 主题：Stripe（金融商务风）
+   * 来源：docs/design/themes/stripe.md
+   * ======================================== */
+  :root[data-theme="stripe"] {
+    --color-background: #ffffff;
+    --color-foreground: #061b31;          /* deep navy */
+    --color-surface: #f6f9fc;
+    --color-border: #e5edf5;
+    --color-primary: #533afd;
+    --color-primary-foreground: #ffffff;
+    --color-muted: #f6f9fc;
+    --color-muted-foreground: #64748d;
+    --color-accent-link: #533afd;
+
+    --shadow-border: none;
+    --shadow-card: rgba(23, 23, 23, 0.08) 0px 15px 35px 0px;
+    --shadow-elevated: rgba(50, 50, 93, 0.25) 0px 30px 45px -30px,
+                       rgba(0, 0, 0, 0.1) 0px 18px 36px -18px;
+
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+    --radius-pill: 9999px;
+
+    --color-status-planning: #94a3b8;
+    --color-status-designing: #60a5fa;
+    --color-status-pending-confirm: #fb923c;
+    --color-status-developing: #3b82f6;
+    --color-status-previewable: #a855f7;
+    --color-status-needs-fix: #ef4444;
+    --color-status-confirmed: #22c55e;
+    --color-status-live: #16a34a;
+  }
+
+  /* ========================================
+   * 主题：Notion（温暖内容风）
+   * 来源：docs/design/themes/notion.md
+   * ======================================== */
+  :root[data-theme="notion"] {
+    --color-background: #ffffff;
+    --color-foreground: rgba(0, 0, 0, 0.95);
+    --color-surface: #f6f5f4;            /* warm white */
+    --color-border: rgba(0, 0, 0, 0.1);
+    --color-primary: #0075de;
+    --color-primary-foreground: #ffffff;
+    --color-muted: #f6f5f4;
+    --color-muted-foreground: #615d59;
+    --color-accent-link: #0075de;
+
+    --shadow-border: none;
+    --shadow-card: rgba(0, 0, 0, 0.04) 0px 4px 18px,
+                   rgba(0, 0, 0, 0.027) 0px 2px 8px,
+                   rgba(0, 0, 0, 0.02) 0px 0.8px 3px;
+    --shadow-elevated: rgba(0, 0, 0, 0.05) 0px 23px 52px,
+                       rgba(0, 0, 0, 0.04) 0px 14px 28px,
+                       rgba(0, 0, 0, 0.02) 0px 7px 15px;
+
+    --radius-sm: 4px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-pill: 9999px;
+
+    --color-status-planning: #94a3b8;
+    --color-status-designing: #60a5fa;
+    --color-status-pending-confirm: #fb923c;
+    --color-status-developing: #3b82f6;
+    --color-status-previewable: #a855f7;
+    --color-status-needs-fix: #ef4444;
+    --color-status-confirmed: #22c55e;
+    --color-status-live: #16a34a;
+  }
+
+  /* ========================================
+   * 主题：Supabase（暗色开源风）
+   * 来源：docs/design/themes/supabase.md
+   * ======================================== */
+  :root[data-theme="supabase"] {
+    --color-background: #171717;
+    --color-foreground: #fafafa;
+    --color-surface: #1a1a1a;
+    --color-border: #2e2e2e;
+    --color-primary: #3ecf8e;
+    --color-primary-foreground: #171717;
+    --color-muted: #222222;
+    --color-muted-foreground: #898989;
+    --color-accent-link: #00c573;
+
+    --shadow-border: none;
+    --shadow-card: none;
+    --shadow-elevated: rgba(0, 0, 0, 0.1) 0px 4px 12px;
+
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 16px;
+    --radius-pill: 9999px;
+
+    --color-status-planning: #64748b;
+    --color-status-designing: #60a5fa;
+    --color-status-pending-confirm: #f97316;
+    --color-status-developing: #3b82f6;
+    --color-status-previewable: #a855f7;
+    --color-status-needs-fix: #f87171;
+    --color-status-confirmed: #4ade80;
+    --color-status-live: #22c55e;
+  }
+
+  /* 暗色模式自动应用（Linear/Supabase主题自动激活dark class） */
+  :root[data-theme="linear"],
+  :root[data-theme="supabase"] {
+    color-scheme: dark;
+  }
+
   /* 全局排版 */
   body {
     @apply text-foreground;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    font-feature-settings: 'liga';
+  }
+
+  /* 主题特定排版 */
+  :root[data-theme="linear"] body {
+    font-feature-settings: 'cv01', 'ss03';
+  }
+  :root[data-theme="stripe"] body {
+    font-feature-settings: 'ss01';
+  }
+  :root[data-theme="notion"] body {
+    font-feature-settings: 'lnum', 'locl';
   }
 
   /* 滚动条（仅Webkit） */
