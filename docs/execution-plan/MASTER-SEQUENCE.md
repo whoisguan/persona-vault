@@ -81,9 +81,9 @@
          api/                  # API Routes
        components/
          ui/                   # shadcn/ui 组件（已有）
-         conversation/         # 对话面板组件
-         feature-map/          # 功能地图组件
-         progress/             # 进度面板组件
+         chat/                  # 对话面板组件
+         dag/                   # 功能地图组件
+         pipeline/              # 进度面板组件
          acceptance/           # 验收面板组件
          layout/               # 布局组件
        stores/                 # Zustand stores
@@ -194,7 +194,7 @@
 ### STEP-008: 配置数据库Schema（Supabase + PostgreSQL）
 **前置条件：** STEP-006完成
 **执行：**
-  1. 创建 `src/lib/db/supabase.ts` — Supabase Client 单例（浏览器端+服务端+Admin三个实例）。代码参考 FIX-005b。
+  1. 创建 `src/lib/db/client.ts` — Supabase Client 单例（浏览器端+服务端+Admin三个实例）。代码参考 FIX-005b。
   2. 创建 `src/lib/db/migrations/001_initial_schema.sql` — 12张核心表的完整DDL。内容来自 `00-project-init.md` 第6节。
   3. 在 Supabase Dashboard SQL Editor 中执行 `001_initial_schema.sql`，创建所有表：
      - users、projects、nodes、edges、node_executions、file_records
@@ -205,9 +205,9 @@
 **验证：**
   - `node scripts/test-db-connection.mjs` 返回 `{ count: 0 }` 无报错
   - Supabase Dashboard 中可看到所有12张表
-  - `src/lib/db/supabase.ts` 导出 `createBrowserClient()`、`createServerClient()`、`createAdminClient()` 三个函数
+  - `src/lib/db/client.ts` 导出 `createBrowserClient()`、`createServerClient()`、`createAdminClient()` 三个函数
 **产出：**
-  - `src/lib/db/supabase.ts` — Supabase Client 单例
+  - `src/lib/db/client.ts` — Supabase Client 单例
   - `src/lib/db/migrations/001_initial_schema.sql` — DDL文件
   - `scripts/test-db-connection.mjs` — 连接测试脚本
   - `.env.local` 数据库配置
@@ -363,9 +363,11 @@
 **前置条件：** STEP-014完成
 **执行：**
   1. 确认 STEP-008 中已在 Supabase Dashboard 执行了 `001_initial_schema.sql`（12张表已创建）
-  2. 创建 `scripts/seed-data.mjs` — 使用 Supabase Admin Client 插入种子数据。代码参考 FIX-R2-002。
-     - 用 `supabase.auth.admin.createUser()` 创建测试用户（不是直接INSERT users表）
-     - 创建示例项目"电商平台" + 5个业务节点 + 4条边
+  2. 创建 `scripts/seed-data.mjs` — 使用 Supabase Admin Client 插入种子数据。
+     - 用 `supabase.auth.admin.createUser({ email, password, email_confirm: true })` 创建测试用户（**注意：不要用 `supabase.from('users').insert()`，必须走auth.admin以触发auth.users→public.users同步trigger**）
+     - 用 Admin Client（绕过RLS）创建示例项目"电商平台" + 5个业务节点 + 4条边
+     - 注意列名对照DDL：edges表用 `source_node`/`target_node`（非source_id/target_id），nodes表用 `position` JSONB（非position_x/position_y），projects表用 `user_id`（非owner_id）
+     - FIX-R2-002的参考代码列名有误，以本STEP说明和DDL为准
   3. 执行 `node scripts/seed-data.mjs` 填充种子数据
   4. 创建 `scripts/smoke-test.mjs` — 端到端冒烟测试脚本
      - 用 Supabase Client 查询 projects 表确认种子数据存在
