@@ -1,0 +1,1882 @@
+# Phase 1 - 项目初始化执行方案
+
+> **目标读者：** AI coding agent（非人类）
+> **执行环境：** Windows 11 / Node.js 20+ / npm 10+
+> **产出：** 可运行的 Next.js 15 项目骨架，包含完整类型定义、数据库 Schema、配置文件
+
+---
+
+## 1. 项目创建
+
+```bash
+cd C:/Projects
+npx create-next-app@latest mixia-builder \
+  --typescript \
+  --tailwind \
+  --eslint \
+  --app \
+  --src-dir \
+  --import-alias "@/*" \
+  --turbopack \
+  --no-git
+cd C:/Projects/mixia-builder
+git init
+```
+
+项目根目录：`C:/Projects/mixia-builder`
+
+---
+
+## 2. 依赖安装
+
+### 2.1 分类清单
+
+**核心框架（create-next-app 已安装）：**
+- next (15.x)
+- react (19.x)
+- react-dom (19.x)
+- typescript (5.x)
+- tailwindcss (4.x)
+- @tailwindcss/postcss
+
+**图编辑器：**
+- @xyflow/react@^12.6.0 — ReactFlow v12，功能地图 DAG 渲染
+
+**状态管理：**
+- zustand@^5.0.3 — 客户端状态管理（4 个独立 Store）
+- @tanstack/react-query@^5.75.0 — 服务端状态管理/缓存
+
+**UI 组件库（shadcn/ui 基础设施）：**
+- class-variance-authority@^0.7.1
+- clsx@^2.1.1
+- tailwind-merge@^3.0.2
+- lucide-react@^0.487.0 — 图标库
+- @radix-ui/react-dialog@^1.1.7
+- @radix-ui/react-dropdown-menu@^2.1.7
+- @radix-ui/react-tooltip@^1.1.8
+- @radix-ui/react-tabs@^1.1.3
+- @radix-ui/react-select@^2.1.7
+- @radix-ui/react-popover@^1.1.7
+- @radix-ui/react-avatar@^1.1.3
+- @radix-ui/react-separator@^1.1.2
+- @radix-ui/react-slot@^1.1.2
+- @radix-ui/react-switch@^1.1.3
+- @radix-ui/react-label@^2.1.2
+- @radix-ui/react-scroll-area@^1.2.4
+- @radix-ui/react-toast@^1.2.7
+- @radix-ui/react-progress@^1.1.2
+
+**面板布局：**
+- react-resizable-panels@^2.1.7 — 三栏可拖拽面板
+
+**动画：**
+- framer-motion@^12.6.0 — 节点状态动画（脉冲、旋转）
+
+**实时通信：**
+- socket.io-client@^4.8.1 — WebSocket 客户端
+- socket.io@^4.8.1 — WebSocket 服务端
+
+**数据库：**
+- @supabase/supabase-js@^2.49.4 — Supabase 客户端
+- @supabase/ssr@^0.6.1 — Supabase SSR helpers
+
+**认证：**
+- next-auth@^5.0.0-beta.25 — NextAuth.js v5
+
+**AI SDK：**
+- @anthropic-ai/sdk@^0.39.0 — Claude API
+- ai@^4.3.0 — Vercel AI SDK（统一流式接口）
+- @ai-sdk/anthropic@^1.2.0
+
+**任务队列：**
+- bullmq@^5.34.8 — BullMQ 任务队列
+- ioredis@^5.4.2 — Redis 客户端
+
+**图布局：**
+- elkjs@^0.9.3 — ELK.js 自动布局算法
+- web-worker@^1.3.0 — Web Worker for elkjs
+
+**工具库：**
+- uuid@^11.1.0 — UUID 生成
+- zod@^3.24.3 — 运行时 Schema 校验
+- date-fns@^4.1.0 — 日期处理
+- nanoid@^5.1.3 — 短 ID 生成
+- lodash-es@^4.17.21 — 工具函数
+
+**开发工具：**
+- @types/node@^22.13.0
+- @types/react@^19.0.0
+- @types/react-dom@^19.0.0
+- @types/uuid@^10.0.0
+- @types/lodash-es@^4.17.12
+- prettier@^3.5.3
+- prettier-plugin-tailwindcss@^0.6.11
+- eslint-config-prettier@^10.1.0
+
+### 2.2 安装命令
+
+```bash
+cd C:/Projects/mixia-builder
+
+# 生产依赖
+npm install @xyflow/react@^12.6.0 zustand@^5.0.3 @tanstack/react-query@^5.75.0 class-variance-authority@^0.7.1 clsx@^2.1.1 tailwind-merge@^3.0.2 lucide-react@^0.487.0 @radix-ui/react-dialog@^1.1.7 @radix-ui/react-dropdown-menu@^2.1.7 @radix-ui/react-tooltip@^1.1.8 @radix-ui/react-tabs@^1.1.3 @radix-ui/react-select@^2.1.7 @radix-ui/react-popover@^1.1.7 @radix-ui/react-avatar@^1.1.3 @radix-ui/react-separator@^1.1.2 @radix-ui/react-slot@^1.1.2 @radix-ui/react-switch@^1.1.3 @radix-ui/react-label@^2.1.2 @radix-ui/react-scroll-area@^1.2.4 @radix-ui/react-toast@^1.2.7 @radix-ui/react-progress@^1.1.2 react-resizable-panels@^2.1.7 framer-motion@^12.6.0 socket.io-client@^4.8.1 socket.io@^4.8.1 @supabase/supabase-js@^2.49.4 @supabase/ssr@^0.6.1 next-auth@^5.0.0-beta.25 @anthropic-ai/sdk@^0.39.0 ai@^4.3.0 @ai-sdk/anthropic@^1.2.0 bullmq@^5.34.8 ioredis@^5.4.2 elkjs@^0.9.3 web-worker@^1.3.0 uuid@^11.1.0 zod@^3.24.3 date-fns@^4.1.0 nanoid@^5.1.3 lodash-es@^4.17.21
+
+# 开发依赖
+npm install -D @types/uuid@^10.0.0 @types/lodash-es@^4.17.12 prettier@^3.5.3 prettier-plugin-tailwindcss@^0.6.11 eslint-config-prettier@^10.1.0
+```
+
+---
+
+## 3. 目录结构
+
+执行以下命令创建完整目录树：
+
+```bash
+cd C:/Projects/mixia-builder
+
+# === src/app (Next.js App Router pages) ===
+mkdir -p src/app/\(auth\)/login
+mkdir -p src/app/\(auth\)/register
+mkdir -p src/app/\(dashboard\)/projects
+mkdir -p src/app/\(dashboard\)/projects/\[projectId\]
+mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/map
+mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/kanban
+mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/journey
+mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/acceptance
+mkdir -p src/app/\(dashboard\)/projects/\[projectId\]/settings
+mkdir -p src/app/\(dashboard\)/settings
+mkdir -p src/app/api/auth/\[...nextauth\]
+mkdir -p src/app/api/projects
+mkdir -p src/app/api/dag
+mkdir -p src/app/api/pipeline
+mkdir -p src/app/api/acceptance
+mkdir -p src/app/api/ai
+mkdir -p src/app/api/webhooks
+
+# === src/components ===
+mkdir -p src/components/ui
+mkdir -p src/components/dag
+mkdir -p src/components/chat
+mkdir -p src/components/acceptance
+mkdir -p src/components/pipeline
+mkdir -p src/components/layout
+mkdir -p src/components/shared
+
+# === src/lib (core logic) ===
+mkdir -p src/lib/dag
+mkdir -p src/lib/pipeline
+mkdir -p src/lib/ai
+mkdir -p src/lib/translation
+mkdir -p src/lib/acceptance
+mkdir -p src/lib/deployment
+mkdir -p src/lib/queue
+mkdir -p src/lib/socket
+mkdir -p src/lib/utils
+
+# === src/stores (Zustand) ===
+mkdir -p src/stores
+
+# === src/hooks ===
+mkdir -p src/hooks
+
+# === src/types ===
+mkdir -p src/types
+
+# === src/config ===
+mkdir -p src/config
+
+# === src/db (database) ===
+mkdir -p src/db/migrations
+mkdir -p src/db/queries
+
+# === src/prompts (AI prompt templates) ===
+mkdir -p src/prompts
+```
+
+### 3.1 目录和文件用途说明
+
+```
+src/
+├── app/                                    # Next.js App Router
+│   ├── (auth)/                             # 认证相关页面（独立布局，无侧边栏）
+│   │   ├── login/page.tsx                  # 登录页
+│   │   ├── register/page.tsx               # 注册页
+│   │   └── layout.tsx                      # 认证页面布局
+│   ├── (dashboard)/                        # 主工作区（带侧边栏+顶栏）
+│   │   ├── projects/
+│   │   │   ├── page.tsx                    # 项目列表页
+│   │   │   └── [projectId]/
+│   │   │       ├── page.tsx                # 项目详情/重定向到 map
+│   │   │       ├── map/page.tsx            # 功能地图视图（ReactFlow DAG）
+│   │   │       ├── kanban/page.tsx         # 看板视图
+│   │   │       ├── journey/page.tsx        # 用户旅程视图
+│   │   │       ├── acceptance/page.tsx     # 引导式验收面板
+│   │   │       ├── settings/page.tsx       # 项目设置（AI模型、技术栈）
+│   │   │       └── layout.tsx              # 项目工作台布局（三栏）
+│   │   ├── settings/page.tsx               # 用户全局设置
+│   │   └── layout.tsx                      # Dashboard 布局（侧边栏）
+│   ├── api/                                # API Routes
+│   │   ├── auth/[...nextauth]/route.ts     # NextAuth.js 认证端点
+│   │   ├── projects/route.ts               # 项目 CRUD
+│   │   ├── dag/route.ts                    # DAG 节点/边操作
+│   │   ├── pipeline/route.ts               # Pipeline 启动/停止/状态
+│   │   ├── acceptance/route.ts             # 验收流程 API
+│   │   ├── ai/route.ts                     # AI 调用代理入口
+│   │   └── webhooks/route.ts               # 外部回调
+│   ├── layout.tsx                          # 根布局
+│   ├── page.tsx                            # Landing page / 首页
+│   └── globals.css                         # 全局样式（Tailwind）
+│
+├── components/
+│   ├── ui/                                 # shadcn/ui 基础组件（button, input, card...）
+│   │   ├── button.tsx                      # [初始化创建]
+│   │   ├── input.tsx                       # [初始化创建]
+│   │   ├── card.tsx                        # [初始化创建]
+│   │   ├── badge.tsx                       # [初始化创建]
+│   │   ├── dialog.tsx                      # [初始化创建]
+│   │   ├── dropdown-menu.tsx               # [初始化创建]
+│   │   ├── tooltip.tsx                     # [初始化创建]
+│   │   ├── tabs.tsx                        # [初始化创建]
+│   │   ├── select.tsx                      # [初始化创建]
+│   │   ├── toast.tsx                       # [初始化创建]
+│   │   ├── toaster.tsx                     # [初始化创建]
+│   │   ├── progress.tsx                    # [初始化创建]
+│   │   ├── scroll-area.tsx                 # [初始化创建]
+│   │   ├── separator.tsx                   # [初始化创建]
+│   │   ├── switch.tsx                      # [初始化创建]
+│   │   ├── label.tsx                       # [初始化创建]
+│   │   └── avatar.tsx                      # [初始化创建]
+│   ├── dag/                                # DAG/功能地图专用组件
+│   │   ├── business-node.tsx               # [后续] 业务节点渲染组件（7种类型）
+│   │   ├── business-edge.tsx               # [后续] 业务边渲染组件
+│   │   ├── node-detail-panel.tsx           # [后续] 节点详情侧面板
+│   │   ├── minimap.tsx                     # [后续] 小地图
+│   │   └── dag-toolbar.tsx                 # [后续] DAG 工具栏（缩放/布局/搜索）
+│   ├── chat/                               # 对话面板组件
+│   │   ├── chat-panel.tsx                  # [后续] 对话面板主容器
+│   │   ├── chat-message.tsx                # [后续] 单条消息
+│   │   ├── chat-input.tsx                  # [后续] 输入框（支持多段+截图）
+│   │   └── choice-selector.tsx             # [后续] 选择题组件
+│   ├── acceptance/                         # 验收面板组件
+│   │   ├── acceptance-panel.tsx            # [后续] 验收面板主容器
+│   │   ├── screenshot-viewer.tsx           # [后续] 截图查看器
+│   │   ├── yes-no-question.tsx             # [后续] 是否题组件
+│   │   └── feedback-form.tsx               # [后续] 反馈表单
+│   ├── pipeline/                           # Pipeline 进度组件
+│   │   ├── progress-stream.tsx             # [后续] 实时进度流
+│   │   └── phase-indicator.tsx             # [后续] Phase 状态指示器
+│   ├── layout/                             # 布局组件
+│   │   ├── sidebar.tsx                     # [初始化创建] 侧边栏
+│   │   ├── topbar.tsx                      # [初始化创建] 顶栏
+│   │   ├── workspace-layout.tsx            # [初始化创建] 三栏工作区布局
+│   │   └── theme-toggle.tsx                # [初始化创建] 暗色/亮色切换
+│   └── shared/                             # 跨功能共享组件
+│       ├── loading-spinner.tsx             # [初始化创建]
+│       └── error-boundary.tsx              # [初始化创建]
+│
+├── lib/
+│   ├── dag/                                # DAG 引擎核心
+│   │   ├── topological-sort.ts             # [后续] 拓扑排序
+│   │   ├── cycle-detection.ts              # [后续] 环检测
+│   │   ├── impact-analysis.ts              # [后续] 影响分析
+│   │   ├── layout-engine.ts                # [后续] ELK.js 自动布局
+│   │   └── dag-operations.ts               # [后续] 节点/边 CRUD 操作
+│   ├── pipeline/                           # Pipeline 编排
+│   │   ├── orchestrator.ts                 # [后续] 7-Phase 编排器
+│   │   ├── phase-runner.ts                 # [后续] 单 Phase 执行器
+│   │   └── checkpoint.ts                   # [后续] 检查点/快照管理
+│   ├── ai/                                 # AI 适配层
+│   │   ├── adapter.ts                      # [后续] 统一 AI 调用接口
+│   │   ├── claude-adapter.ts               # [后续] Claude Adapter
+│   │   ├── prompt-builder.ts               # [后续] Prompt 模板引擎
+│   │   └── cost-tracker.ts                 # [后续] 成本追踪
+│   ├── translation/                        # 业务翻译层
+│   │   ├── status-translator.ts            # [后续] 技术状态 → 业务状态
+│   │   ├── name-mapper.ts                  # [后续] 技术名称 → PM语言
+│   │   ├── progress-formatter.ts           # [后续] 进度流格式化
+│   │   └── derive-business-status.ts       # [初始化创建] 状态派生纯函数
+│   ├── acceptance/                         # 验收引擎
+│   │   ├── question-generator.ts           # [后续] 验收问题生成
+│   │   ├── feedback-parser.ts              # [后续] PM 反馈解析
+│   │   └── fix-loop.ts                     # [后续] 修复循环控制
+│   ├── deployment/                         # 部署引擎
+│   │   ├── cloudflare-deployer.ts          # [后续] Cloudflare Pages 部署
+│   │   ├── build-runner.ts                 # [后续] 构建执行
+│   │   └── health-checker.ts               # [后续] 健康检查
+│   ├── queue/                              # 任务队列
+│   │   ├── queue-config.ts                 # [后续] BullMQ 队列配置
+│   │   └── workers.ts                      # [后续] Worker 定义
+│   ├── socket/                             # WebSocket
+│   │   ├── server.ts                       # [后续] Socket.io 服务端
+│   │   └── client.ts                       # [后续] Socket.io 客户端 hook
+│   └── utils/
+│       ├── cn.ts                           # [初始化创建] className 合并工具
+│       └── supabase.ts                     # [初始化创建] Supabase 客户端初始化
+│
+├── stores/
+│   ├── project-store.ts                    # [初始化创建] 项目配置、功能地图节点/边
+│   ├── pipeline-store.ts                   # [初始化创建] Pipeline 状态、进度、日志流
+│   ├── ui-store.ts                         # [初始化创建] 面板布局、当前视图、缩放
+│   └── acceptance-store.ts                 # [初始化创建] 验收清单、PM回答、截图
+│
+├── hooks/
+│   ├── use-project.ts                      # [后续] 项目数据 hook
+│   ├── use-dag.ts                          # [后续] DAG 操作 hook
+│   ├── use-pipeline.ts                     # [后续] Pipeline 状态 hook
+│   └── use-realtime.ts                     # [后续] WebSocket 实时更新 hook
+│
+├── types/
+│   ├── tech-node.ts                        # [初始化创建] 技术层节点/边类型
+│   ├── business-node.ts                    # [初始化创建] 业务层节点/边类型
+│   ├── events.ts                           # [初始化创建] 事件溯源类型
+│   ├── pipeline.ts                         # [初始化创建] Pipeline/Phase 类型
+│   ├── acceptance.ts                       # [初始化创建] 验收流程类型
+│   ├── project.ts                          # [初始化创建] 项目配置类型
+│   └── ai.ts                              # [初始化创建] AI 调用相关类型
+│
+├── config/
+│   ├── site.ts                             # [初始化创建] 站点配置常量
+│   └── ai-models.ts                        # [初始化创建] AI 模型配置
+│
+├── db/
+│   ├── migrations/
+│   │   └── 001_initial_schema.sql          # [初始化创建] 完整建表 SQL
+│   └── queries/
+│       ├── projects.ts                     # [后续] 项目查询
+│       ├── nodes.ts                        # [后续] 节点查询
+│       └── pipeline.ts                     # [后续] Pipeline 查询
+│
+└── prompts/
+    ├── requirement-analysis.ts             # [后续] 需求解析 prompt
+    ├── dag-generation.ts                   # [后续] 功能地图生成 prompt
+    ├── code-generation.ts                  # [后续] 代码生成 prompt
+    └── acceptance-question.ts              # [后续] 验收问题生成 prompt
+```
+
+### 3.2 创建初始化骨架文件
+
+以下文件在 Phase 1 初始化时创建（空骨架或最小实现）：
+
+```bash
+cd C:/Projects/mixia-builder
+
+# 类型定义文件（第5节详细内容）
+touch src/types/tech-node.ts
+touch src/types/business-node.ts
+touch src/types/events.ts
+touch src/types/pipeline.ts
+touch src/types/acceptance.ts
+touch src/types/project.ts
+touch src/types/ai.ts
+
+# 工具库
+touch src/lib/utils/cn.ts
+touch src/lib/utils/supabase.ts
+touch src/lib/translation/derive-business-status.ts
+
+# Stores
+touch src/stores/project-store.ts
+touch src/stores/pipeline-store.ts
+touch src/stores/ui-store.ts
+touch src/stores/acceptance-store.ts
+
+# 配置
+touch src/config/site.ts
+touch src/config/ai-models.ts
+
+# 数据库迁移
+touch src/db/migrations/001_initial_schema.sql
+
+# 布局组件骨架
+touch src/components/layout/sidebar.tsx
+touch src/components/layout/topbar.tsx
+touch src/components/layout/workspace-layout.tsx
+touch src/components/layout/theme-toggle.tsx
+touch src/components/shared/loading-spinner.tsx
+touch src/components/shared/error-boundary.tsx
+
+# App Router 页面骨架
+touch "src/app/(auth)/layout.tsx"
+touch "src/app/(auth)/login/page.tsx"
+touch "src/app/(auth)/register/page.tsx"
+touch "src/app/(dashboard)/layout.tsx"
+touch "src/app/(dashboard)/projects/page.tsx"
+touch "src/app/(dashboard)/projects/[projectId]/page.tsx"
+touch "src/app/(dashboard)/projects/[projectId]/layout.tsx"
+touch "src/app/(dashboard)/projects/[projectId]/map/page.tsx"
+touch "src/app/(dashboard)/projects/[projectId]/kanban/page.tsx"
+touch "src/app/(dashboard)/projects/[projectId]/journey/page.tsx"
+touch "src/app/(dashboard)/projects/[projectId]/acceptance/page.tsx"
+touch "src/app/(dashboard)/projects/[projectId]/settings/page.tsx"
+touch "src/app/(dashboard)/settings/page.tsx"
+touch "src/app/api/auth/[...nextauth]/route.ts"
+touch src/app/api/projects/route.ts
+touch src/app/api/dag/route.ts
+touch src/app/api/pipeline/route.ts
+touch src/app/api/acceptance/route.ts
+touch src/app/api/ai/route.ts
+touch src/app/api/webhooks/route.ts
+```
+
+---
+
+## 4. 配置文件
+
+### 4.1 next.config.ts
+
+```typescript
+// C:/Projects/mixia-builder/next.config.ts
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "4mb",
+    },
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.supabase.co",
+      },
+      {
+        protocol: "https",
+        hostname: "**.r2.cloudflarestorage.com",
+      },
+    ],
+  },
+  webpack: (config, { isServer }) => {
+    // elkjs web worker support
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        net: false,
+        tls: false,
+      };
+    }
+    return config;
+  },
+  async headers() {
+    return [
+      {
+        source: "/api/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          {
+            key: "Access-Control-Allow-Methods",
+            value: "GET,POST,PUT,DELETE,OPTIONS",
+          },
+          {
+            key: "Access-Control-Allow-Headers",
+            value: "Content-Type, Authorization",
+          },
+        ],
+      },
+    ];
+  },
+};
+
+export default nextConfig;
+```
+
+### 4.2 tailwind.config.ts
+
+```typescript
+// C:/Projects/mixia-builder/tailwind.config.ts
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  darkMode: "class",
+  content: [
+    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        // 业务状态颜色（对应 8 种 BusinessStatus）
+        "status-planning": "#9CA3AF",     // 灰色 — 待规划
+        "status-designing": "#60A5FA",    // 蓝色 — 方案中
+        "status-pending": "#FB923C",      // 橙色 — 待确认（脉冲闪烁）
+        "status-developing": "#3B82F6",   // 蓝色 — 开发中（旋转动画）
+        "status-previewable": "#A78BFA",  // 紫色 — 可预览（脉冲闪烁）
+        "status-needsfix": "#EF4444",     // 红色 — 需修改
+        "status-confirmed": "#22C55E",    // 绿色 — 已确认
+        "status-live": "#15803D",         // 深绿 — 已上线
+        // 品牌色
+        brand: {
+          50: "#EEF2FF",
+          100: "#E0E7FF",
+          200: "#C7D2FE",
+          300: "#A5B4FC",
+          400: "#818CF8",
+          500: "#6366F1",
+          600: "#4F46E5",
+          700: "#4338CA",
+          800: "#3730A3",
+          900: "#312E81",
+          950: "#1E1B4B",
+        },
+        // shadcn/ui semantic tokens
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      keyframes: {
+        // 节点脉冲动画（待确认/可预览状态）
+        "node-pulse": {
+          "0%, 100%": { opacity: "1", transform: "scale(1)" },
+          "50%": { opacity: "0.8", transform: "scale(1.03)" },
+        },
+        // 节点旋转动画（开发中状态）
+        "node-spin": {
+          "0%": { transform: "rotate(0deg)" },
+          "100%": { transform: "rotate(360deg)" },
+        },
+        // 进度条滑入
+        "slide-in-right": {
+          "0%": { transform: "translateX(100%)", opacity: "0" },
+          "100%": { transform: "translateX(0)", opacity: "1" },
+        },
+      },
+      animation: {
+        "node-pulse": "node-pulse 2s ease-in-out infinite",
+        "node-spin": "node-spin 1.5s linear infinite",
+        "slide-in": "slide-in-right 0.3s ease-out",
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;
+```
+
+### 4.3 tsconfig.json
+
+```json
+// C:/Projects/mixia-builder/tsconfig.json
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "forceConsistentCasingInFileNames": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+```
+
+### 4.4 .eslintrc.json
+
+```json
+// C:/Projects/mixia-builder/.eslintrc.json
+{
+  "extends": [
+    "next/core-web-vitals",
+    "next/typescript",
+    "prettier"
+  ],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": [
+      "warn",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_"
+      }
+    ],
+    "@typescript-eslint/no-explicit-any": "warn",
+    "prefer-const": "error",
+    "no-console": ["warn", { "allow": ["warn", "error"] }]
+  }
+}
+```
+
+### 4.5 .prettierrc
+
+```json
+// C:/Projects/mixia-builder/.prettierrc
+{
+  "semi": true,
+  "singleQuote": false,
+  "tabWidth": 2,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "plugins": ["prettier-plugin-tailwindcss"]
+}
+```
+
+### 4.6 .env.local.example
+
+```bash
+# C:/Projects/mixia-builder/.env.local.example
+
+# ============================
+# Supabase (必须)
+# ============================
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbG...your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=eyJhbG...your-service-role-key
+
+# ============================
+# NextAuth.js (必须)
+# ============================
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=your-secret-at-least-32-chars-long
+
+# ============================
+# AI Provider: Anthropic / Claude (至少配一个 AI Provider)
+# ============================
+ANTHROPIC_API_KEY=sk-ant-...your-anthropic-key
+
+# ============================
+# AI Provider: DeepSeek (可选，Phase 2+)
+# ============================
+# DEEPSEEK_API_KEY=sk-...your-deepseek-key
+
+# ============================
+# AI Provider: 通义千问 / DashScope (可选，Phase 2+)
+# ============================
+# DASHSCOPE_API_KEY=sk-...your-dashscope-key
+
+# ============================
+# Redis / BullMQ (必须，用于任务队列和实时通信)
+# ============================
+REDIS_URL=redis://localhost:6379
+
+# ============================
+# Cloudflare (预览部署用，Phase 1 后期)
+# ============================
+# CLOUDFLARE_ACCOUNT_ID=your-account-id
+# CLOUDFLARE_API_TOKEN=your-api-token
+# CLOUDFLARE_R2_ACCESS_KEY=your-r2-access-key
+# CLOUDFLARE_R2_SECRET_KEY=your-r2-secret-key
+# CLOUDFLARE_R2_BUCKET=mixia-builder-storage
+
+# ============================
+# 应用配置
+# ============================
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NODE_ENV=development
+```
+
+### 4.7 .gitignore
+
+```gitignore
+# C:/Projects/mixia-builder/.gitignore
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+Thumbs.db
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# env files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+```
+
+---
+
+## 5. 基础类型定义
+
+### 5.1 src/types/tech-node.ts
+
+```typescript
+// C:/Projects/mixia-builder/src/types/tech-node.ts
+
+// ============================================================
+// 技术层（Truth Source）— 所有写操作只发生在技术层
+// ============================================================
+
+/** 技术节点类型（8种） */
+export type TechNodeType =
+  | "decision"
+  | "code_gen"
+  | "schema_design"
+  | "config"
+  | "test"
+  | "integration"
+  | "manual"
+  | "checkpoint";
+
+/** 技术节点状态机 */
+export type TechNodeStatus =
+  | "pending"
+  | "ready"
+  | "generating"
+  | "completed"
+  | "validated"
+  | "approved"
+  | "error"
+  | "partial"
+  | "stale"
+  | "skipped"
+  | "reviewing";
+
+/** 技术细分状态（内部使用） */
+export type TechDetailedStatus =
+  | "pending"
+  | "analyzing"
+  | "planning"
+  | "plan_ready"
+  | "ready"
+  | "generating"
+  | "completed"
+  | "validated"
+  | "linting"
+  | "testing"
+  | "deploying_preview"
+  | "preview_ready"
+  | "fix_analyzing"
+  | "fix_generating"
+  | "fix_testing"
+  | "fix_deploying"
+  | "approved"
+  | "production_deployed"
+  | "error"
+  | "partial"
+  | "stale"
+  | "skipped"
+  | "reviewing";
+
+/** 端口定义 */
+export interface PortDef {
+  port_id: string;
+  name: string;
+  schema?: Record<string, unknown>;
+}
+
+/** 技术节点 */
+export interface TechNode {
+  id: string;
+  type: TechNodeType;
+  label: string;
+  description: string;
+  inputs: PortDef[];
+  outputs: PortDef[];
+  status: TechNodeStatus;
+  assigned_model?: string;
+  business_node_id?: string;
+  metadata: {
+    created_by: "user" | "ai" | string;
+    created_at: string;
+    last_modified_by: string;
+    last_modified_at: string;
+    estimated_tokens: number;
+    group_id?: string;
+  };
+}
+
+/** 上下文传递策略 */
+export interface ContextTransform {
+  strategy: "full" | "summary" | "extract" | "template" | "metadata_only";
+  extract_pattern?: string;
+  template?: string;
+  max_tokens?: number;
+}
+
+/** 技术层边 */
+export interface Edge {
+  id: string;
+  source_node: string;
+  source_port: string;
+  target_node: string;
+  target_port: string;
+  type: "hard" | "soft" | "reference";
+  transform?: ContextTransform;
+}
+
+/** 双层视图映射（NodeGroup） */
+export interface NodeGroup {
+  group_id: string;
+  label: string;
+  description: string;
+  member_node_ids: string[];
+  entry_ports: PortRef[];
+  exit_ports: PortRef[];
+  collapsed: boolean;
+}
+
+export interface PortRef {
+  group_port_id: string;
+  member_node_id: string;
+  member_port_id: string;
+}
+
+/** 节点执行记录 */
+export interface NodeExecution {
+  execution_id: string;
+  node_id: string;
+  triggered_by: "initial" | "user_edit" | "upstream_change" | "manual_rerun";
+  input_snapshot: Record<string, string>;
+  output: Record<string, string>;
+  ai_model: string;
+  prompt_hash: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  timestamp: string;
+  duration_ms: number;
+  status: "success" | "error" | "partial";
+  error_message?: string;
+}
+
+/** 验证关卡 */
+export interface ValidationGate {
+  checks: ValidationCheck[];
+  max_fix_attempts: number;
+}
+
+export interface ValidationCheck {
+  name: "syntax" | "lint" | "deps" | "schema" | "security";
+  tool: string;
+  required: boolean;
+}
+
+export interface ValidationResult {
+  check_name: string;
+  passed: boolean;
+  details?: string;
+  auto_fixed?: boolean;
+}
+```
+
+### 5.2 src/types/business-node.ts
+
+```typescript
+// C:/Projects/mixia-builder/src/types/business-node.ts
+
+// ============================================================
+// 业务层（PM投影）— 只读，由技术层派生
+// ============================================================
+
+/** 业务节点类型（7种） */
+export type BusinessNodeType =
+  | "feature"
+  | "page"
+  | "flow"
+  | "data"
+  | "connect"
+  | "rule"
+  | "milestone";
+
+/** 业务状态（8种） */
+export type BusinessStatus =
+  | "planning"
+  | "designing"
+  | "pending_confirm"
+  | "developing"
+  | "previewable"
+  | "needs_fix"
+  | "confirmed"
+  | "live";
+
+/** 业务节点图标 */
+export type BusinessNodeIcon =
+  | "puzzle"
+  | "window"
+  | "arrow_cycle"
+  | "table"
+  | "plug"
+  | "scale"
+  | "flag";
+
+/** 节点类型到图标的映射 */
+export const BUSINESS_NODE_ICON_MAP: Record<BusinessNodeType, BusinessNodeIcon> = {
+  feature: "puzzle",
+  page: "window",
+  flow: "arrow_cycle",
+  data: "table",
+  connect: "plug",
+  rule: "scale",
+  milestone: "flag",
+} as const;
+
+/** 业务状态显示配置 */
+export const BUSINESS_STATUS_CONFIG: Record<
+  BusinessStatus,
+  { color: string; label: string; animation: "none" | "pulse" | "spin" }
+> = {
+  planning: { color: "status-planning", label: "待规划", animation: "none" },
+  designing: { color: "status-designing", label: "方案中", animation: "none" },
+  pending_confirm: { color: "status-pending", label: "待确认", animation: "pulse" },
+  developing: { color: "status-developing", label: "开发中", animation: "spin" },
+  previewable: { color: "status-previewable", label: "可预览", animation: "pulse" },
+  needs_fix: { color: "status-needsfix", label: "需修改", animation: "none" },
+  confirmed: { color: "status-confirmed", label: "已确认", animation: "none" },
+  live: { color: "status-live", label: "已上线", animation: "none" },
+} as const;
+
+/** 截图 */
+export interface Screenshot {
+  url: string;
+  page_title: string;
+  captured_at: string;
+  viewport: { width: number; height: number };
+  annotations?: ScreenshotAnnotation[];
+}
+
+export interface ScreenshotAnnotation {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  comment: string;
+}
+
+/** 验收问题 */
+export interface AcceptanceQuestion {
+  id: string;
+  question: string;
+  type: "yes_no" | "choice";
+  choices?: string[];
+  answer?: "yes" | "no" | string;
+  follow_up?: string;
+}
+
+/** 验收结果 */
+export interface AcceptanceResult {
+  status: "passed" | "failed" | "partial" | "skipped";
+  passed_questions: number;
+  total_questions: number;
+  issues: AcceptanceIssue[];
+  accepted_at?: string;
+}
+
+export interface AcceptanceIssue {
+  question_id: string;
+  pm_feedback: string;
+  severity: "critical" | "major" | "minor" | "cosmetic";
+  fix_status: "pending" | "fixing" | "fixed" | "wont_fix";
+  fix_attempts: number;
+}
+
+// ---- 业务节点详情（按类型区分） ----
+
+export interface FeatureDetail {
+  type: "feature";
+  includes: string[];
+  user_story?: string;
+}
+
+export interface PageDetail {
+  type: "page";
+  route: string;
+  components: string[];
+  responsive: boolean;
+}
+
+export interface FlowStep {
+  order: number;
+  page_node_id: string;
+  action: string;
+  next_condition?: string;
+}
+
+export interface FlowDetail {
+  type: "flow";
+  steps: FlowStep[];
+  entry_page: string;
+  exit_page: string;
+}
+
+export interface DataField {
+  name: string;
+  description: string;
+  required: boolean;
+  example?: string;
+}
+
+export interface DataDetail {
+  type: "data";
+  fields: DataField[];
+  estimated_records?: string;
+}
+
+export interface ConnectDetail {
+  type: "connect";
+  service_name: string;
+  requires_credentials: boolean;
+  credential_fields?: string[];
+  sandbox_available: boolean;
+}
+
+export interface RuleDetail {
+  type: "rule";
+  condition: string;
+  action: string;
+  priority?: number;
+  conflicts_with?: string[];
+}
+
+export interface MilestoneDetail {
+  type: "milestone";
+  required_nodes: string[];
+  auto_pause: boolean;
+  notification: string;
+}
+
+export type BusinessNodeDetail =
+  | FeatureDetail
+  | PageDetail
+  | FlowDetail
+  | DataDetail
+  | ConnectDetail
+  | RuleDetail
+  | MilestoneDetail;
+
+/** 业务节点 */
+export interface BusinessNode {
+  id: string;
+  type: BusinessNodeType;
+  label: string;
+  description: string;
+  status: BusinessStatus;
+  icon: BusinessNodeIcon;
+  tech_node_ids: string[];
+  tech_group_id?: string;
+  pm_metadata: {
+    created_at: string;
+    estimated_time: string;
+    estimated_cost_usd: number;
+    actual_cost_usd?: number;
+    acceptance_status?: AcceptanceResult;
+  };
+  depends_on: string[];
+  depended_by: string[];
+  detail: BusinessNodeDetail;
+  screenshots?: Screenshot[];
+  acceptance_questions?: AcceptanceQuestion[];
+}
+
+/** 业务层边（简化版） */
+export interface BusinessEdge {
+  id: string;
+  source: string;
+  target: string;
+  label?: string;
+  type: "depends_on";
+  tech_edge_ids: string[];
+}
+```
+
+### 5.3 src/types/events.ts
+
+```typescript
+// C:/Projects/mixia-builder/src/types/events.ts
+
+// ============================================================
+// 事件溯源（双层事件系统）
+// ============================================================
+
+/** 技术层事件类型 */
+export type TechEventType =
+  | "node_add"
+  | "node_delete"
+  | "node_update"
+  | "node_status_change"
+  | "edge_add"
+  | "edge_delete"
+  | "edge_update"
+  | "layout_change"
+  | "group_change"
+  | "batch"
+  | "execution_start"
+  | "execution_complete"
+  | "execution_error"
+  | "validation_start"
+  | "validation_pass"
+  | "validation_fail";
+
+/** 业务层事件类型 */
+export type BusinessEventType =
+  | "feature_status_change"
+  | "feature_accepted"
+  | "feature_rejected"
+  | "plan_confirmed"
+  | "plan_modified"
+  | "milestone_reached"
+  | "deployment_started"
+  | "deployment_completed"
+  | "acceptance_started"
+  | "acceptance_completed";
+
+/** 统一事件接口 */
+export interface DagEvent {
+  id: string;
+  timestamp: string;
+  layer: "tech" | "business";
+  type: TechEventType | BusinessEventType;
+  payload: Record<string, unknown>;
+  inverse?: Record<string, unknown>;
+  author: "user" | "ai" | "system";
+  ai_model?: string;
+  correlation_id?: string;
+  pipeline_phase?: number;
+}
+
+/** 节点状态变更 Payload */
+export interface NodeStatusChangePayload {
+  node_id: string;
+  old_status: string;
+  new_status: string;
+  reason: string;
+  validation_results?: Array<{
+    check_name: string;
+    passed: boolean;
+    details?: string;
+    auto_fixed?: boolean;
+  }>;
+}
+```
+
+### 5.4 src/types/pipeline.ts
+
+```typescript
+// C:/Projects/mixia-builder/src/types/pipeline.ts
+
+// ============================================================
+// Pipeline / 7-Phase 编排
+// ============================================================
+
+/** Pipeline Phase 编号 */
+export type PipelinePhaseNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7;
+
+/** Pipeline 状态 */
+export type PipelineStatus =
+  | "idle"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+/** Phase 状态 */
+export type PhaseStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "skipped";
+
+/** Phase 定义 */
+export interface PipelinePhase {
+  phase: PipelinePhaseNumber;
+  name: string;
+  status: PhaseStatus;
+  started_at?: string;
+  completed_at?: string;
+  error_message?: string;
+  pm_participation: number;
+}
+
+/** Pipeline 全局配置 */
+export const PIPELINE_PHASES: readonly PipelinePhase[] = [
+  { phase: 1, name: "需求理解 + 方案生成", status: "pending", pm_participation: 0.3 },
+  { phase: 2, name: "代码生成", status: "pending", pm_participation: 0 },
+  { phase: 3, name: "质量关卡", status: "pending", pm_participation: 0 },
+  { phase: 4, name: "测试", status: "pending", pm_participation: 0 },
+  { phase: 5, name: "自动部署到Preview", status: "pending", pm_participation: 0 },
+  { phase: 6, name: "引导式验收", status: "pending", pm_participation: 0.1 },
+  { phase: 7, name: "一键上线", status: "pending", pm_participation: 0.01 },
+] as const;
+
+/** Pipeline 运行记录 */
+export interface PipelineRun {
+  id: string;
+  project_id: string;
+  status: PipelineStatus;
+  current_phase: PipelinePhaseNumber | null;
+  phases: PipelinePhase[];
+  total_cost_usd: number;
+  total_tokens: number;
+  started_at: string;
+  completed_at?: string;
+}
+
+/** Pipeline Job（BullMQ） */
+export interface PipelineJob {
+  project_id: string;
+  pipeline_run_id: string;
+  triggered_by: "user_start" | "auto_fix" | "acceptance_retry";
+  current_phase: PipelinePhaseNumber;
+}
+
+/** 进度消息（实时推送给前端） */
+export interface ProgressMessage {
+  pipeline_run_id: string;
+  phase: PipelinePhaseNumber;
+  node_id?: string;
+  message: string;
+  message_type: "info" | "success" | "warning" | "error";
+  timestamp: string;
+  progress_percent?: number;
+}
+```
+
+### 5.5 src/types/acceptance.ts
+
+```typescript
+// C:/Projects/mixia-builder/src/types/acceptance.ts
+
+// ============================================================
+// 引导式验收流程
+// ============================================================
+
+/** 验收阶段 */
+export type AcceptanceStage =
+  | "overview"
+  | "per_feature"
+  | "issue_locate"
+  | "summary";
+
+/** 验收会话 */
+export interface AcceptanceSession {
+  id: string;
+  project_id: string;
+  pipeline_run_id: string;
+  stage: AcceptanceStage;
+  current_feature_index: number;
+  features: AcceptanceFeature[];
+  started_at: string;
+  completed_at?: string;
+}
+
+/** 单功能验收 */
+export interface AcceptanceFeature {
+  business_node_id: string;
+  label: string;
+  screenshots: Array<{
+    url: string;
+    page_title: string;
+  }>;
+  questions: Array<{
+    id: string;
+    question: string;
+    type: "yes_no" | "choice";
+    choices?: string[];
+    answer?: "yes" | "no" | string;
+  }>;
+  result: "pending" | "passed" | "failed" | "fixing";
+  fix_attempts: number;
+  pm_feedback?: string;
+}
+
+/** 问题定位选项（PM说"否"时） */
+export interface IssueLocateOptions {
+  categories: Array<{
+    id: string;
+    label: string;
+    description: string;
+  }>;
+}
+
+export const DEFAULT_ISSUE_CATEGORIES: IssueLocateOptions = {
+  categories: [
+    { id: "layout", label: "页面布局有问题", description: "元素位置、间距、排列不对" },
+    { id: "function", label: "功能不工作", description: "按钮点不了、表单提交失败" },
+    { id: "data", label: "数据显示不对", description: "数字、文字、图片显示错误" },
+    { id: "unclear", label: "我说不清楚", description: "截图标注问题区域" },
+  ],
+};
+```
+
+### 5.6 src/types/project.ts
+
+```typescript
+// C:/Projects/mixia-builder/src/types/project.ts
+
+// ============================================================
+// 项目配置
+// ============================================================
+
+/** 项目状态 */
+export type ProjectStatus = "draft" | "building" | "preview" | "live" | "archived";
+
+/** 技术栈选项（Phase 1 固定为 Next.js + Supabase） */
+export interface TechStackConfig {
+  frontend: "nextjs";
+  css: "tailwind";
+  backend: "nextjs-api-routes";
+  database: "supabase";
+  auth: "nextauth";
+  deployment: "cloudflare-pages";
+}
+
+/** AI 模型配置 */
+export interface AIModelConfig {
+  default_model: string;
+  fallback_model?: string;
+  budget_limit_usd?: number;
+}
+
+/** 项目配置 */
+export interface ProjectConfig {
+  tech_stack: TechStackConfig;
+  ai_model: AIModelConfig;
+  ui_style: "modern-minimal" | "business" | "warm" | "tech";
+  target_users: string;
+  business_type: string;
+}
+
+/** 项目 */
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string;
+  config: ProjectConfig;
+  status: ProjectStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 用户 */
+export interface User {
+  id: string;
+  email: string;
+  name?: string;
+  plan: "free" | "pro" | "team" | "enterprise";
+  created_at: string;
+}
+```
+
+### 5.7 src/types/ai.ts
+
+```typescript
+// C:/Projects/mixia-builder/src/types/ai.ts
+
+// ============================================================
+// AI 调用相关类型
+// ============================================================
+
+/** AI Provider */
+export type AIProvider = "anthropic" | "deepseek" | "dashscope";
+
+/** AI 模型标识 */
+export type AIModelId =
+  | "claude-sonnet-4"
+  | "claude-haiku-3.5"
+  | "deepseek-v3"
+  | "deepseek-coder"
+  | "qwen-max"
+  | "qwen-plus";
+
+/** AI 调用请求 */
+export interface AICallRequest {
+  project_id: string;
+  node_id: string;
+  model: AIModelId;
+  messages: AIMessage[];
+  max_tokens: number;
+  stream: boolean;
+  budget: {
+    remaining_usd: number;
+    max_cost_for_this_call: number;
+  };
+  idempotency_key: string;
+}
+
+/** AI 消息 */
+export interface AIMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+/** AI 调用响应 */
+export interface AICallResponse {
+  content: string;
+  model: AIModelId;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  duration_ms: number;
+  cached: boolean;
+}
+
+/** AI 模型信息 */
+export interface AIModelInfo {
+  id: AIModelId;
+  provider: AIProvider;
+  display_name: string;
+  cost_per_m_input: number;
+  cost_per_m_output: number;
+  max_context: number;
+  strengths: string[];
+}
+
+/** AI Provider 熔断器状态 */
+export interface CircuitBreakerState {
+  provider: AIProvider;
+  state: "closed" | "open" | "half-open";
+  failure_count: number;
+  last_failure_at?: string;
+  cooldown_until?: string;
+}
+
+/** 成本报告 */
+export interface CostReport {
+  project_id: string;
+  total_usd: number;
+  by_provider: Record<AIProvider, number>;
+  by_phase: Record<number, number>;
+  by_node: Record<string, number>;
+}
+```
+
+---
+
+## 6. 数据库 Schema
+
+### 6.1 src/db/migrations/001_initial_schema.sql
+
+```sql
+-- C:/Projects/mixia-builder/src/db/migrations/001_initial_schema.sql
+-- MIXIA Builder 初始 Schema
+-- 执行方式：在 Supabase Dashboard > SQL Editor 中运行
+
+-- ============================================================
+-- 1. 用户表
+-- ============================================================
+CREATE TABLE users (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email       TEXT UNIQUE NOT NULL,
+  name        TEXT,
+  plan        TEXT DEFAULT 'free' CHECK (plan IN ('free', 'pro', 'team', 'enterprise')),
+  api_keys    JSONB DEFAULT '{}',
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+-- ============================================================
+-- 2. 项目表
+-- ============================================================
+CREATE TABLE projects (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     UUID REFERENCES users(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  description TEXT,
+  config      JSONB NOT NULL DEFAULT '{}',
+  status      TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'building', 'preview', 'live', 'archived')),
+  created_at  TIMESTAMPTZ DEFAULT now(),
+  updated_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_projects_user ON projects(user_id);
+
+-- ============================================================
+-- 3. DAG 节点表（业务节点 + 底层技术节点）
+-- ============================================================
+CREATE TABLE nodes (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id      UUID REFERENCES projects(id) ON DELETE CASCADE,
+  layer           TEXT NOT NULL DEFAULT 'business' CHECK (layer IN ('business', 'tech')),
+  type            TEXT NOT NULL,
+  label           TEXT NOT NULL,
+  description     TEXT,
+  status          TEXT DEFAULT 'pending',
+  assigned_model  TEXT,
+  group_id        UUID,
+  position        JSONB DEFAULT '{"x": 0, "y": 0}',
+  detail          JSONB DEFAULT '{}',
+  metadata        JSONB DEFAULT '{}',
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_nodes_project ON nodes(project_id);
+CREATE INDEX idx_nodes_project_status ON nodes(project_id, status);
+CREATE INDEX idx_nodes_project_layer ON nodes(project_id, layer);
+
+-- ============================================================
+-- 4. DAG 边表
+-- ============================================================
+CREATE TABLE edges (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id    UUID REFERENCES projects(id) ON DELETE CASCADE,
+  layer         TEXT NOT NULL DEFAULT 'business' CHECK (layer IN ('business', 'tech')),
+  source_node   UUID REFERENCES nodes(id) ON DELETE CASCADE,
+  target_node   UUID REFERENCES nodes(id) ON DELETE CASCADE,
+  type          TEXT DEFAULT 'hard' CHECK (type IN ('hard', 'soft', 'reference', 'depends_on')),
+  label         TEXT,
+  transform     JSONB,
+  tech_edge_ids TEXT[] DEFAULT '{}',
+  created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_edges_project ON edges(project_id);
+CREATE INDEX idx_edges_source ON edges(source_node);
+CREATE INDEX idx_edges_target ON edges(target_node);
+
+-- ============================================================
+-- 5. 节点执行记录（不可变日志）
+-- ============================================================
+CREATE TABLE node_executions (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  node_id         UUID REFERENCES nodes(id) ON DELETE CASCADE,
+  triggered_by    TEXT NOT NULL CHECK (triggered_by IN ('initial', 'user_edit', 'upstream_change', 'manual_rerun')),
+  ai_model        TEXT NOT NULL,
+  prompt_hash     TEXT NOT NULL,
+  tokens_in       INTEGER NOT NULL,
+  tokens_out      INTEGER NOT NULL,
+  cost_usd        NUMERIC(10,6) NOT NULL,
+  duration_ms     INTEGER NOT NULL,
+  status          TEXT NOT NULL CHECK (status IN ('success', 'error', 'partial')),
+  error_message   TEXT,
+  output_snapshot JSONB,
+  created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_executions_node ON node_executions(node_id, created_at DESC);
+
+-- ============================================================
+-- 6. 生成的文件记录
+-- ============================================================
+CREATE TABLE file_records (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id        UUID REFERENCES projects(id) ON DELETE CASCADE,
+  path              TEXT NOT NULL,
+  source_node_id    UUID REFERENCES nodes(id),
+  source_execution  UUID REFERENCES node_executions(id),
+  content_hash      TEXT NOT NULL,
+  size_bytes        INTEGER,
+  r2_key            TEXT NOT NULL,
+  user_modified     BOOLEAN DEFAULT false,
+  created_at        TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(project_id, path)
+);
+
+CREATE INDEX idx_files_project ON file_records(project_id);
+
+-- ============================================================
+-- 7. Pipeline 执行记录
+-- ============================================================
+CREATE TABLE pipeline_runs (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id    UUID REFERENCES projects(id) ON DELETE CASCADE,
+  status        TEXT DEFAULT 'running' CHECK (status IN ('idle', 'running', 'paused', 'completed', 'failed', 'cancelled')),
+  current_phase INTEGER,
+  phases_log    JSONB DEFAULT '[]',
+  total_cost    NUMERIC(10,4) DEFAULT 0,
+  total_tokens  BIGINT DEFAULT 0,
+  started_at    TIMESTAMPTZ DEFAULT now(),
+  completed_at  TIMESTAMPTZ
+);
+
+CREATE INDEX idx_pipeline_project ON pipeline_runs(project_id, started_at DESC);
+
+-- ============================================================
+-- 8. 验收记录
+-- ============================================================
+CREATE TABLE acceptance_records (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id     UUID REFERENCES projects(id) ON DELETE CASCADE,
+  pipeline_run   UUID REFERENCES pipeline_runs(id),
+  feature_name   TEXT NOT NULL,
+  step_index     INTEGER NOT NULL,
+  question       TEXT NOT NULL,
+  pm_answer      TEXT,
+  screenshot_url TEXT,
+  pm_feedback    TEXT,
+  created_at     TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_acceptance_project ON acceptance_records(project_id);
+
+-- ============================================================
+-- 9. DAG 事件日志（事件溯源）
+-- ============================================================
+CREATE TABLE dag_events (
+  id          BIGSERIAL PRIMARY KEY,
+  project_id  UUID REFERENCES projects(id) ON DELETE CASCADE,
+  layer       TEXT NOT NULL DEFAULT 'tech' CHECK (layer IN ('tech', 'business')),
+  type        TEXT NOT NULL,
+  payload     JSONB NOT NULL,
+  inverse     JSONB NOT NULL DEFAULT '{}',
+  author      TEXT NOT NULL CHECK (author IN ('user', 'ai', 'system')),
+  ai_model    TEXT,
+  correlation_id TEXT,
+  pipeline_phase INTEGER,
+  created_at  TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_events_project ON dag_events(project_id, id);
+
+-- ============================================================
+-- 10. DAG 快照
+-- ============================================================
+CREATE TABLE dag_snapshots (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id      UUID REFERENCES projects(id) ON DELETE CASCADE,
+  version         INTEGER NOT NULL,
+  snapshot_data   JSONB NOT NULL,
+  event_id_at     BIGINT,
+  created_at      TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(project_id, version)
+);
+
+-- ============================================================
+-- 11. 成本追踪
+-- ============================================================
+CREATE TABLE cost_entries (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id    UUID REFERENCES projects(id) ON DELETE CASCADE,
+  user_id       UUID REFERENCES users(id),
+  pipeline_run  UUID REFERENCES pipeline_runs(id),
+  phase         TEXT NOT NULL,
+  provider      TEXT NOT NULL,
+  model         TEXT NOT NULL,
+  tokens_in     INTEGER NOT NULL,
+  tokens_out    INTEGER NOT NULL,
+  cost_usd      NUMERIC(10,6) NOT NULL,
+  created_at    TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX idx_cost_project ON cost_entries(project_id, created_at);
+CREATE INDEX idx_cost_user ON cost_entries(user_id, created_at);
+
+-- ============================================================
+-- 12. 依赖清单
+-- ============================================================
+CREATE TABLE dependency_manifests (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id    UUID REFERENCES projects(id) ON DELETE CASCADE,
+  package_name  TEXT NOT NULL,
+  version       TEXT,
+  added_by_node UUID REFERENCES nodes(id),
+  registry      TEXT CHECK (registry IN ('npm', 'pypi', 'go')),
+  verified      BOOLEAN DEFAULT false,
+  UNIQUE(project_id, package_name)
+);
+
+-- ============================================================
+-- Row Level Security (RLS)
+-- ============================================================
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE nodes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE edges ENABLE ROW LEVEL SECURITY;
+ALTER TABLE node_executions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE file_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pipeline_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE acceptance_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dag_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dag_snapshots ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cost_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE dependency_manifests ENABLE ROW LEVEL SECURITY;
+
+-- 用户只能访问自己的项目数据
+CREATE POLICY "users_own_projects" ON projects
+  FOR ALL USING (user_id = auth.uid());
+
+CREATE POLICY "users_own_nodes" ON nodes
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "users_own_edges" ON edges
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "users_own_executions" ON node_executions
+  FOR ALL USING (node_id IN (
+    SELECT n.id FROM nodes n
+    JOIN projects p ON n.project_id = p.id
+    WHERE p.user_id = auth.uid()
+  ));
+
+CREATE POLICY "users_own_files" ON file_records
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "users_own_pipelines" ON pipeline_runs
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "users_own_acceptance" ON acceptance_records
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "users_own_events" ON dag_events
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "users_own_snapshots" ON dag_snapshots
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+CREATE POLICY "users_own_costs" ON cost_entries
+  FOR ALL USING (user_id = auth.uid());
+
+CREATE POLICY "users_own_deps" ON dependency_manifests
+  FOR ALL USING (project_id IN (SELECT id FROM projects WHERE user_id = auth.uid()));
+
+-- ============================================================
+-- updated_at 自动更新触发器
+-- ============================================================
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_projects_updated_at
+  BEFORE UPDATE ON projects
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+```
+
+---
+
+## 7. 环境变量
+
+### 7.1 完整清单
+
+| 变量名 | 必须 | 用途 | 获取方式 |
+|--------|------|------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | 是 | Supabase 项目 URL | Supabase Dashboard > Settings > API |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | 是 | Supabase 匿名 Key（客户端用） | 同上 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 是 | Supabase Service Role Key（服务端用，绕过 RLS） | 同上 |
+| `NEXTAUTH_URL` | 是 | NextAuth.js 回调 URL | 本地: `http://localhost:3000`，生产: 实际域名 |
+| `NEXTAUTH_SECRET` | 是 | NextAuth.js 加密密钥 | 运行 `openssl rand -base64 32` 生成 |
+| `ANTHROPIC_API_KEY` | 是 | Claude API 密钥（Phase 1 唯一 AI Provider） | Anthropic Console |
+| `REDIS_URL` | 是 | Redis 连接 URL（BullMQ + 实时状态） | 本地: `redis://localhost:6379`，云: Upstash/Redis Cloud |
+| `NEXT_PUBLIC_APP_URL` | 是 | 前端应用 URL | 本地: `http://localhost:3000` |
+| `NODE_ENV` | 是 | 运行环境 | `development` / `production` |
+| `DEEPSEEK_API_KEY` | 否 | DeepSeek API 密钥 | Phase 2+ 启用，DeepSeek 官网 |
+| `DASHSCOPE_API_KEY` | 否 | 通义千问 API 密钥 | Phase 2+ 启用，阿里云 DashScope |
+| `CLOUDFLARE_ACCOUNT_ID` | 否 | Cloudflare 账户 ID | Phase 1 后期启用，Cloudflare Dashboard |
+| `CLOUDFLARE_API_TOKEN` | 否 | Cloudflare API Token | 同上，需 Pages 和 R2 权限 |
+| `CLOUDFLARE_R2_ACCESS_KEY` | 否 | R2 对象存储 Access Key | Cloudflare Dashboard > R2 > Manage API Tokens |
+| `CLOUDFLARE_R2_SECRET_KEY` | 否 | R2 对象存储 Secret Key | 同上 |
+| `CLOUDFLARE_R2_BUCKET` | 否 | R2 Bucket 名称 | 创建 Bucket 时指定 |
+
+### 7.2 本地开发最小配置
+
+Phase 1 开发最低要求：
+
+```bash
+# .env.local 最小配置
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+SUPABASE_SERVICE_ROLE_KEY=eyJ...
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=run-openssl-rand-base64-32-to-generate
+ANTHROPIC_API_KEY=sk-ant-...
+REDIS_URL=redis://localhost:6379
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+NODE_ENV=development
+```
+
+### 7.3 启动前置服务
+
+```bash
+# Redis（Windows 可用 WSL 或 Docker）
+docker run -d --name mixia-redis -p 6379:6379 redis:7-alpine
+
+# 或使用 Upstash（免费 Redis 托管），不需要本地 Docker
+# 将 REDIS_URL 设为 Upstash 提供的 URL
+```
+
+### 7.4 验证项目可运行
+
+```bash
+cd C:/Projects/mixia-builder
+cp .env.local.example .env.local
+# 编辑 .env.local 填入真实值
+
+npm run dev
+# 访问 http://localhost:3000 确认页面可加载
+```

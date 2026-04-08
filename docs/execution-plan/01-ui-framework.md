@@ -1,0 +1,2539 @@
+# Phase 1: UI框架实现执行方案（F-1.7 PM工作台基础UI）
+
+> **目标：** 搭建PM工作台的完整前端骨架——三栏可拖拽布局、对话面板、功能地图面板、进度面板、验收面板、状态管理、样式系统。
+> **技术栈：** Next.js 14 (App Router) + TypeScript + Tailwind CSS + Zustand + ReactFlow + react-resizable-panels
+> **产出：** 所有组件可渲染、可交互（使用mock数据），无后端依赖。
+
+---
+
+## 1. 布局组件
+
+### 1.1 `app/layout.tsx` — 根布局
+
+```tsx
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import { ThemeProvider } from '@/components/providers/ThemeProvider';
+import '@/styles/globals.css';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
+
+export const metadata: Metadata = {
+  title: 'MIXIA Builder',
+  description: 'AI全自动项目交付平台 — 把产品经理的需求变成可上线产品',
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return (
+    <html lang="zh-CN" className={inter.variable} suppressHydrationWarning>
+      <body className="min-h-screen bg-background font-sans antialiased">
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="light"
+          enableSystem={false}
+          storageKey="mixia-builder-theme"
+        >
+          {children}
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+### 1.2 `components/providers/ThemeProvider.tsx` — 主题Provider
+
+```tsx
+'use client';
+
+import { ThemeProvider as NextThemesProvider } from 'next-themes';
+import type { ThemeProviderProps } from 'next-themes/dist/types';
+
+export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>;
+}
+```
+
+### 1.3 `app/page.tsx` — 主工作台入口
+
+```tsx
+import { WorkbenchLayout } from '@/components/layout/WorkbenchLayout';
+import { TopBar } from '@/components/layout/TopBar';
+
+export default function WorkbenchPage() {
+  return (
+    <div className="flex h-screen flex-col overflow-hidden">
+      <TopBar />
+      <main className="flex-1 overflow-hidden">
+        <WorkbenchLayout />
+      </main>
+    </div>
+  );
+}
+```
+
+### 1.4 `components/layout/WorkbenchLayout.tsx` — 三栏可拖拽布局
+
+产品规格书2.2节定义了PM工作台的核心布局：左侧对话面板、中间功能地图/验收面板、右侧进度面板。使用`react-resizable-panels`实现三栏可拖拽。
+
+```tsx
+'use client';
+
+import {
+  Panel,
+  PanelGroup,
+  PanelResizeHandle,
+} from 'react-resizable-panels';
+import { ConversationPanel } from '@/components/conversation/ConversationPanel';
+import { FeatureMapPanel } from '@/components/feature-map/FeatureMapPanel';
+import { ProgressPanel } from '@/components/progress/ProgressPanel';
+import { AcceptancePanel } from '@/components/acceptance/AcceptancePanel';
+import { useUIStore } from '@/stores/ui-store';
+import { cn } from '@/lib/utils';
+
+export function WorkbenchLayout() {
+  const activeView = useUIStore((s) => s.activeCenterView);
+
+  return (
+    <PanelGroup
+      direction="horizontal"
+      className="h-full"
+      autoSaveId="mixia-workbench-layout"
+    >
+      {/* 左栏：对话面板 */}
+      <Panel
+        defaultSize={28}
+        minSize={20}
+        maxSize={45}
+        className="flex flex-col"
+      >
+        <ConversationPanel />
+      </Panel>
+
+      <PanelResizeHandle className="w-1 bg-border hover:bg-primary/20 transition-colors cursor-col-resize" />
+
+      {/* 中栏：功能地图 或 验收面板（互斥显示） */}
+      <Panel defaultSize={48} minSize={30}>
+        <div className="relative h-full">
+          <div
+            className={cn(
+              'absolute inset-0 transition-opacity duration-200',
+              activeView === 'feature-map'
+                ? 'opacity-100 z-10'
+                : 'opacity-0 z-0 pointer-events-none'
+            )}
+          >
+            <FeatureMapPanel />
+          </div>
+          <div
+            className={cn(
+              'absolute inset-0 transition-opacity duration-200',
+              activeView === 'acceptance'
+                ? 'opacity-100 z-10'
+                : 'opacity-0 z-0 pointer-events-none'
+            )}
+          >
+            <AcceptancePanel />
+          </div>
+        </div>
+      </Panel>
+
+      <PanelResizeHandle className="w-1 bg-border hover:bg-primary/20 transition-colors cursor-col-resize" />
+
+      {/* 右栏：实时进度 */}
+      <Panel
+        defaultSize={24}
+        minSize={18}
+        maxSize={35}
+        className="flex flex-col"
+      >
+        <ProgressPanel />
+      </Panel>
+    </PanelGroup>
+  );
+}
+```
+
+### 1.5 `components/layout/TopBar.tsx` — 顶部栏
+
+产品规格书4.3节定义了三种视图切换（功能地图/看板/用户旅程），TopBar承载项目名称、视图切换、预览按钮。
+
+```tsx
+'use client';
+
+import { useUIStore } from '@/stores/ui-store';
+import { usePipelineStore } from '@/stores/pipeline-store';
+import { cn } from '@/lib/utils';
+import {
+  GitBranchIcon,
+  KanbanIcon,
+  RouteIcon,
+  PlayIcon,
+  MoonIcon,
+  SunIcon,
+  EyeIcon,
+} from 'lucide-react';
+import { useTheme } from 'next-themes';
+
+type MapView = 'dag' | 'kanban' | 'journey';
+
+const VIEW_OPTIONS: { key: MapView; label: string; icon: React.ReactNode }[] = [
+  { key: 'dag', label: '功能地图', icon: <GitBranchIcon size={16} /> },
+  { key: 'kanban', label: '看板', icon: <KanbanIcon size={16} /> },
+  { key: 'journey', label: '用户旅程', icon: <RouteIcon size={16} /> },
+];
+
+export function TopBar() {
+  const projectName = useUIStore((s) => s.projectName);
+  const mapView = useUIStore((s) => s.mapView);
+  const setMapView = useUIStore((s) => s.setMapView);
+  const activeCenterView = useUIStore((s) => s.activeCenterView);
+  const setActiveCenterView = useUIStore((s) => s.setActiveCenterView);
+  const pipelinePhase = usePipelineStore((s) => s.currentPhase);
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-surface px-4">
+      {/* 左侧：项目名 + Pipeline阶段 */}
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold text-foreground">
+          {projectName || 'MIXIA Builder'}
+        </span>
+        {pipelinePhase && (
+          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
+            {pipelinePhase}
+          </span>
+        )}
+      </div>
+
+      {/* 中部：视图切换（仅在功能地图模式下显示） */}
+      <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
+        {VIEW_OPTIONS.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => {
+              setMapView(opt.key);
+              setActiveCenterView('feature-map');
+            }}
+            className={cn(
+              'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+              mapView === opt.key && activeCenterView === 'feature-map'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {opt.icon}
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 右侧：预览 + 验收 + 主题切换 */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setActiveCenterView('acceptance')}
+          className={cn(
+            'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+            activeCenterView === 'acceptance'
+              ? 'bg-primary text-primary-foreground'
+              : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <EyeIcon size={14} />
+          验收
+        </button>
+        <button
+          onClick={() => window.open('/preview', '_blank')}
+          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          <PlayIcon size={14} />
+          预览
+        </button>
+        <button
+          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          className="rounded-md p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label="切换主题"
+        >
+          {theme === 'dark' ? <SunIcon size={16} /> : <MoonIcon size={16} />}
+        </button>
+      </div>
+    </header>
+  );
+}
+```
+
+### 1.6 `lib/utils.ts` — 通用工具
+
+```ts
+import { type ClassValue, clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+```
+
+---
+
+## 2. 对话面板
+
+### 2.1 `components/conversation/ConversationPanel.tsx` — 对话列表+输入框
+
+产品规格书2.2节定义了PM与AI的多轮对话交互（I1需求描述、I2方案讨论无限循环）。对话面板是PM的主输入通道。
+
+```tsx
+'use client';
+
+import { useRef, useEffect, useCallback } from 'react';
+import { useConversationStore, type Message } from '@/stores/conversation-store';
+import { MessageBubble } from './MessageBubble';
+import { StreamingMessage } from './StreamingMessage';
+import { SendIcon } from 'lucide-react';
+
+export function ConversationPanel() {
+  const messages = useConversationStore((s) => s.messages);
+  const inputValue = useConversationStore((s) => s.inputValue);
+  const setInputValue = useConversationStore((s) => s.setInputValue);
+  const sendMessage = useConversationStore((s) => s.sendMessage);
+  const isStreaming = useConversationStore((s) => s.isStreaming);
+  const streamingContent = useConversationStore((s) => s.streamingContent);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // 自动滚动到底部
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, streamingContent]);
+
+  // textarea自动调高
+  const adjustTextareaHeight = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+    }
+  }, []);
+
+  const handleSend = () => {
+    const trimmed = inputValue.trim();
+    if (!trimmed || isStreaming) return;
+    sendMessage(trimmed);
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      {/* 面板标题 */}
+      <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
+        <span className="text-sm font-medium text-foreground">对话</span>
+        <span className="ml-2 text-xs text-muted-foreground">
+          {messages.length} 条消息
+        </span>
+      </div>
+
+      {/* 消息列表 */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+        {messages.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <p className="text-sm text-muted-foreground mb-2">
+              描述你的产品想法
+            </p>
+            <p className="text-xs text-muted-foreground/60 max-w-[260px]">
+              例如："我想做一个宠物寄养平台，宠物主人可以发布寄养需求，寄养家庭可以接单，支持在线支付和评价。"
+            </p>
+          </div>
+        )}
+
+        {messages.map((msg) => (
+          <MessageBubble key={msg.id} message={msg} />
+        ))}
+
+        {isStreaming && streamingContent && (
+          <StreamingMessage content={streamingContent} />
+        )}
+      </div>
+
+      {/* 输入区 */}
+      <div className="shrink-0 border-t border-border p-3">
+        <div className="flex items-end gap-2 rounded-lg border border-border bg-surface p-2">
+          <textarea
+            ref={textareaRef}
+            value={inputValue}
+            onChange={(e) => {
+              setInputValue(e.target.value);
+              adjustTextareaHeight();
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder="描述你的需求，或回复AI的问题..."
+            rows={1}
+            className="flex-1 resize-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+          <button
+            onClick={handleSend}
+            disabled={!inputValue.trim() || isStreaming}
+            className="shrink-0 rounded-md bg-primary p-2 text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <SendIcon size={16} />
+          </button>
+        </div>
+        <p className="mt-1.5 text-center text-[10px] text-muted-foreground/50">
+          Enter发送 / Shift+Enter换行
+        </p>
+      </div>
+    </div>
+  );
+}
+```
+
+### 2.2 `components/conversation/MessageBubble.tsx` — 消息气泡
+
+```tsx
+'use client';
+
+import type { Message } from '@/stores/conversation-store';
+import { cn } from '@/lib/utils';
+import { BotIcon, UserIcon } from 'lucide-react';
+
+interface MessageBubbleProps {
+  message: Message;
+}
+
+export function MessageBubble({ message }: MessageBubbleProps) {
+  const isUser = message.role === 'user';
+
+  return (
+    <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
+      {/* 头像 */}
+      <div
+        className={cn(
+          'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
+          isUser ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+        )}
+      >
+        {isUser ? <UserIcon size={14} /> : <BotIcon size={14} />}
+      </div>
+
+      {/* 消息体 */}
+      <div className={cn('max-w-[85%] space-y-1', isUser ? 'items-end' : 'items-start')}>
+        <div
+          className={cn(
+            'rounded-xl px-3.5 py-2.5 text-sm leading-relaxed',
+            isUser
+              ? 'bg-primary text-primary-foreground rounded-br-sm'
+              : 'bg-muted text-foreground rounded-bl-sm'
+          )}
+        >
+          {/* 文本内容 */}
+          <div className="whitespace-pre-wrap">{message.content}</div>
+
+          {/* 选择题（规格书2.2节：AI追问用选择题优先） */}
+          {message.choices && message.choices.length > 0 && (
+            <div className="mt-3 space-y-1.5">
+              {message.choices.map((choice, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => message.onChoiceSelect?.(choice)}
+                  className="block w-full rounded-md border border-border/50 bg-background/50 px-3 py-1.5 text-left text-xs text-foreground hover:bg-background transition-colors"
+                >
+                  {String.fromCharCode(65 + idx)}) {choice}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* 时间戳 */}
+        <span className="px-1 text-[10px] text-muted-foreground/50">
+          {new Date(message.timestamp).toLocaleTimeString('zh-CN', {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </span>
+      </div>
+    </div>
+  );
+}
+```
+
+### 2.3 `components/conversation/StreamingMessage.tsx` — AI流式输出渲染
+
+```tsx
+'use client';
+
+import { BotIcon } from 'lucide-react';
+
+interface StreamingMessageProps {
+  content: string;
+}
+
+export function StreamingMessage({ content }: StreamingMessageProps) {
+  return (
+    <div className="flex gap-2.5">
+      {/* AI头像 */}
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+        <BotIcon size={14} />
+      </div>
+
+      {/* 流式内容 */}
+      <div className="max-w-[85%]">
+        <div className="rounded-xl rounded-bl-sm bg-muted px-3.5 py-2.5 text-sm leading-relaxed text-foreground">
+          <div className="whitespace-pre-wrap">
+            {content}
+            <span className="inline-block w-1.5 h-4 ml-0.5 bg-foreground/60 animate-blink align-text-bottom" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## 3. 功能地图面板
+
+### 3.1 `components/feature-map/FeatureMapPanel.tsx` — ReactFlow容器
+
+产品规格书4.3节定义了功能地图视图（DAG图）：每个业务节点显示为卡片（名称+图标+状态颜色），节点间用箭头连线表示依赖关系。
+
+```tsx
+'use client';
+
+import { useCallback } from 'react';
+import ReactFlow, {
+  Background,
+  BackgroundVariant,
+  Controls,
+  type NodeTypes,
+  type EdgeTypes,
+  type OnNodesChange,
+  type OnEdgesChange,
+  type OnConnect,
+} from 'reactflow';
+import 'reactflow/dist/style.css';
+
+import { BusinessNode } from './BusinessNode';
+import { BusinessEdge } from './BusinessEdge';
+import { FeatureMapMiniMap } from './MiniMap';
+import { useDagStore } from '@/stores/dag-store';
+import { useUIStore } from '@/stores/ui-store';
+
+const nodeTypes: NodeTypes = {
+  business: BusinessNode,
+};
+
+const edgeTypes: EdgeTypes = {
+  business: BusinessEdge,
+};
+
+export function FeatureMapPanel() {
+  const nodes = useDagStore((s) => s.nodes);
+  const edges = useDagStore((s) => s.edges);
+  const onNodesChange = useDagStore((s) => s.onNodesChange);
+  const onEdgesChange = useDagStore((s) => s.onEdgesChange);
+  const setSelectedNodeId = useDagStore((s) => s.setSelectedNodeId);
+  const mapView = useUIStore((s) => s.mapView);
+
+  const handleNodeClick = useCallback(
+    (_event: React.MouseEvent, node: { id: string }) => {
+      setSelectedNodeId(node.id);
+    },
+    [setSelectedNodeId]
+  );
+
+  const handlePaneClick = useCallback(() => {
+    setSelectedNodeId(null);
+  }, [setSelectedNodeId]);
+
+  return (
+    <div className="relative h-full w-full bg-background">
+      {/* 面板标题 */}
+      <div className="absolute left-4 top-3 z-20 flex items-center gap-2">
+        <span className="text-sm font-medium text-foreground">功能地图</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+          {nodes.length} 个节点
+        </span>
+      </div>
+
+      {/* 图例（规格书4.3节视图1底部的图例） */}
+      <div className="absolute bottom-4 left-4 z-20 flex items-center gap-3 rounded-lg bg-surface/80 backdrop-blur-sm px-3 py-1.5 border border-border/50">
+        <LegendDot color="bg-status-confirmed" label="已确认" />
+        <LegendDot color="bg-status-developing" label="开发中" />
+        <LegendDot color="bg-status-pending-confirm" label="待确认" />
+        <LegendDot color="bg-status-planning" label="待规划" />
+        <LegendDot color="bg-status-needs-fix" label="需修改" />
+        <LegendDot color="bg-status-previewable" label="可预览" />
+        <LegendDot color="bg-status-live" label="已上线" />
+      </div>
+
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
+        fitView
+        fitViewOptions={{ padding: 0.15 }}
+        minZoom={0.3}
+        maxZoom={2}
+        defaultEdgeOptions={{
+          type: 'business',
+          animated: false,
+        }}
+        proOptions={{ hideAttribution: true }}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-muted-foreground)" className="opacity-20" />
+        <Controls showInteractive={false} className="!bg-surface !border-border !shadow-sm [&>button]:!bg-surface [&>button]:!border-border [&>button]:!text-foreground" />
+        <FeatureMapMiniMap />
+      </ReactFlow>
+    </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className={`h-2 w-2 rounded-full ${color}`} />
+      <span className="text-[10px] text-muted-foreground">{label}</span>
+    </div>
+  );
+}
+```
+
+### 3.2 `components/feature-map/BusinessNode.tsx` — 自定义节点组件
+
+产品规格书4.1节定义了7种业务节点类型（feature/page/flow/data/connect/rule/milestone），每种有对应图标。4.2节定义了8种业务状态及其颜色和动画效果。
+
+```tsx
+'use client';
+
+import { memo } from 'react';
+import { Handle, Position, type NodeProps } from 'reactflow';
+import { cn } from '@/lib/utils';
+import { useDagStore, type BusinessNodeData } from '@/stores/dag-store';
+import {
+  PuzzleIcon,
+  AppWindowIcon,
+  RefreshCwIcon,
+  TableIcon,
+  PlugIcon,
+  ScaleIcon,
+  FlagIcon,
+} from 'lucide-react';
+
+/** 规格书4.1节：业务节点图标映射 */
+const NODE_ICONS: Record<string, React.ElementType> = {
+  feature: PuzzleIcon,
+  page: AppWindowIcon,
+  flow: RefreshCwIcon,
+  data: TableIcon,
+  connect: PlugIcon,
+  rule: ScaleIcon,
+  milestone: FlagIcon,
+};
+
+/** 规格书4.2节：业务状态 -> 样式映射 */
+const STATUS_STYLES: Record<
+  string,
+  { ring: string; bg: string; dot: string; animate?: string }
+> = {
+  planning: {
+    ring: 'ring-status-planning',
+    bg: 'bg-status-planning/10',
+    dot: 'bg-status-planning',
+  },
+  designing: {
+    ring: 'ring-status-designing',
+    bg: 'bg-status-designing/10',
+    dot: 'bg-status-designing',
+  },
+  pending_confirm: {
+    ring: 'ring-status-pending-confirm',
+    bg: 'bg-status-pending-confirm/10',
+    dot: 'bg-status-pending-confirm',
+    animate: 'animate-pulse',
+  },
+  developing: {
+    ring: 'ring-status-developing',
+    bg: 'bg-status-developing/10',
+    dot: 'bg-status-developing',
+    animate: 'animate-spin-slow',
+  },
+  previewable: {
+    ring: 'ring-status-previewable',
+    bg: 'bg-status-previewable/10',
+    dot: 'bg-status-previewable',
+    animate: 'animate-pulse',
+  },
+  needs_fix: {
+    ring: 'ring-status-needs-fix',
+    bg: 'bg-status-needs-fix/10',
+    dot: 'bg-status-needs-fix',
+  },
+  confirmed: {
+    ring: 'ring-status-confirmed',
+    bg: 'bg-status-confirmed/10',
+    dot: 'bg-status-confirmed',
+  },
+  live: {
+    ring: 'ring-status-live',
+    bg: 'bg-status-live/10',
+    dot: 'bg-status-live',
+  },
+};
+
+function BusinessNodeComponent({ id, data }: NodeProps<BusinessNodeData>) {
+  const selectedNodeId = useDagStore((s) => s.selectedNodeId);
+  const isSelected = selectedNodeId === id;
+
+  const Icon = NODE_ICONS[data.nodeType] ?? PuzzleIcon;
+  const style = STATUS_STYLES[data.status] ?? STATUS_STYLES.planning;
+
+  return (
+    <div
+      className={cn(
+        'group relative rounded-xl border bg-surface px-4 py-3 shadow-sm transition-all duration-200 min-w-[140px] max-w-[200px]',
+        'ring-2',
+        style.ring,
+        isSelected && 'ring-primary shadow-md scale-105'
+      )}
+    >
+      {/* 连接点 */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="!w-2.5 !h-2.5 !bg-border !border-surface !-top-1.5"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!w-2.5 !h-2.5 !bg-border !border-surface !-bottom-1.5"
+      />
+
+      {/* 节点头部：图标 + 状态点 */}
+      <div className="flex items-center justify-between mb-1.5">
+        <div className={cn('rounded-md p-1.5', style.bg)}>
+          <Icon size={16} className="text-foreground" />
+        </div>
+        <span
+          className={cn('h-2.5 w-2.5 rounded-full', style.dot, style.animate)}
+        />
+      </div>
+
+      {/* 节点标签（规格书4.1：必须用PM需求原文短语） */}
+      <p className="text-sm font-medium text-foreground leading-tight truncate">
+        {data.label}
+      </p>
+
+      {/* 简要说明 */}
+      {data.description && (
+        <p className="mt-0.5 text-[11px] text-muted-foreground leading-snug line-clamp-2">
+          {data.description}
+        </p>
+      )}
+
+      {/* Hover详情浮层 */}
+      <div
+        className={cn(
+          'absolute left-1/2 top-full z-30 mt-2 -translate-x-1/2 rounded-lg border border-border bg-surface p-3 shadow-lg',
+          'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto',
+          'transition-opacity duration-150 w-56'
+        )}
+      >
+        <p className="text-xs font-medium text-foreground">{data.label}</p>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {data.description || '暂无说明'}
+        </p>
+        <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
+          <span className={cn('h-1.5 w-1.5 rounded-full', style.dot)} />
+          <span>{STATUS_LABEL[data.status] ?? data.status}</span>
+          <span className="text-muted-foreground/40">|</span>
+          <span>{TYPE_LABEL[data.nodeType] ?? data.nodeType}</span>
+        </div>
+        {data.estimatedTime && (
+          <p className="mt-1 text-[10px] text-muted-foreground/70">
+            预估：{data.estimatedTime}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 状态中文标签 */
+const STATUS_LABEL: Record<string, string> = {
+  planning: '待规划',
+  designing: '方案中',
+  pending_confirm: '待确认',
+  developing: '开发中',
+  previewable: '可预览',
+  needs_fix: '需修改',
+  confirmed: '已确认',
+  live: '已上线',
+};
+
+/** 节点类型中文标签 */
+const TYPE_LABEL: Record<string, string> = {
+  feature: '功能',
+  page: '页面',
+  flow: '流程',
+  data: '数据',
+  connect: '对接',
+  rule: '规则',
+  milestone: '里程碑',
+};
+
+export const BusinessNode = memo(BusinessNodeComponent);
+```
+
+### 3.3 `components/feature-map/BusinessEdge.tsx` — 自定义边
+
+```tsx
+'use client';
+
+import { memo } from 'react';
+import {
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
+  type EdgeProps,
+} from 'reactflow';
+import type { BusinessEdgeData } from '@/stores/dag-store';
+
+function BusinessEdgeComponent({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+  selected,
+}: EdgeProps<BusinessEdgeData>) {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+  });
+
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={{
+          stroke: selected ? 'var(--color-primary)' : 'var(--color-border)',
+          strokeWidth: selected ? 2 : 1.5,
+        }}
+        markerEnd="url(#arrow)"
+      />
+
+      {/* 关系标签（可选） */}
+      {data?.label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              pointerEvents: 'all',
+            }}
+            className="rounded bg-surface px-1.5 py-0.5 text-[10px] text-muted-foreground border border-border/50 shadow-sm"
+          >
+            {data.label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+
+      {/* SVG箭头定义 */}
+      <svg style={{ position: 'absolute', width: 0, height: 0 }}>
+        <defs>
+          <marker
+            id="arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth={8}
+            markerHeight={8}
+            orient="auto-start-reverse"
+          >
+            <path
+              d="M 0 0 L 10 5 L 0 10 z"
+              fill="var(--color-border)"
+            />
+          </marker>
+        </defs>
+      </svg>
+    </>
+  );
+}
+
+export const BusinessEdge = memo(BusinessEdgeComponent);
+```
+
+### 3.4 `components/feature-map/MiniMap.tsx` — 缩略导航
+
+```tsx
+'use client';
+
+import { MiniMap as ReactFlowMiniMap } from 'reactflow';
+import type { BusinessNodeData } from '@/stores/dag-store';
+
+const STATUS_COLORS: Record<string, string> = {
+  planning: '#94a3b8',    // gray
+  designing: '#60a5fa',   // blue
+  pending_confirm: '#fb923c', // orange
+  developing: '#3b82f6',  // blue
+  previewable: '#a855f7', // purple
+  needs_fix: '#ef4444',   // red
+  confirmed: '#22c55e',   // green
+  live: '#16a34a',        // dark green
+};
+
+export function FeatureMapMiniMap() {
+  return (
+    <ReactFlowMiniMap
+      nodeColor={(node) => {
+        const data = node.data as BusinessNodeData;
+        return STATUS_COLORS[data.status] ?? '#94a3b8';
+      }}
+      maskColor="rgba(0, 0, 0, 0.08)"
+      className="!bg-surface !border-border !shadow-sm !rounded-lg"
+      pannable
+      zoomable
+    />
+  );
+}
+```
+
+---
+
+## 4. 进度面板
+
+### 4.1 `components/progress/ProgressPanel.tsx` — 实时进度流
+
+产品规格书3.1节定义了7个Pipeline Phase，PM可见的是翻译后的业务语言进度。第6章业务翻译层将技术操作翻译为PM能理解的语言。
+
+```tsx
+'use client';
+
+import { useEffect, useRef } from 'react';
+import { usePipelineStore, type ProgressEntry } from '@/stores/pipeline-store';
+import { ProgressItem } from './ProgressItem';
+
+export function ProgressPanel() {
+  const entries = usePipelineStore((s) => s.progressEntries);
+  const isConnected = usePipelineStore((s) => s.wsConnected);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 自动滚动到最新进度
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [entries]);
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      {/* 面板标题 */}
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
+        <span className="text-sm font-medium text-foreground">实时进度</span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              isConnected ? 'bg-status-confirmed animate-pulse' : 'bg-status-planning'
+            }`}
+          />
+          <span className="text-[10px] text-muted-foreground">
+            {isConnected ? '已连接' : '未连接'}
+          </span>
+        </div>
+      </div>
+
+      {/* 进度流 */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {entries.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-xs text-muted-foreground/50">
+              等待Pipeline启动...
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-0 py-2">
+            {entries.map((entry) => (
+              <ProgressItem key={entry.id} entry={entry} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* WebSocket重连控制 */}
+      {!isConnected && entries.length > 0 && (
+        <div className="shrink-0 border-t border-border p-2">
+          <button
+            onClick={() => usePipelineStore.getState().connectWebSocket()}
+            className="w-full rounded-md bg-muted px-3 py-1.5 text-xs text-foreground hover:bg-muted/80 transition-colors"
+          >
+            重新连接
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 4.2 `components/progress/ProgressItem.tsx` — 单条进度消息
+
+产品规格书第6章业务翻译层：技术层操作翻译为PM可理解的业务语言。ProgressItem展示翻译后的内容。
+
+```tsx
+'use client';
+
+import type { ProgressEntry } from '@/stores/pipeline-store';
+import { cn } from '@/lib/utils';
+import {
+  CheckCircleIcon,
+  CircleDotIcon,
+  LoaderIcon,
+  AlertCircleIcon,
+  InfoIcon,
+} from 'lucide-react';
+
+interface ProgressItemProps {
+  entry: ProgressEntry;
+}
+
+const STATUS_CONFIG: Record<
+  ProgressEntry['status'],
+  { icon: React.ElementType; color: string; iconAnimate?: string }
+> = {
+  running: {
+    icon: LoaderIcon,
+    color: 'text-status-developing',
+    iconAnimate: 'animate-spin',
+  },
+  completed: {
+    icon: CheckCircleIcon,
+    color: 'text-status-confirmed',
+  },
+  error: {
+    icon: AlertCircleIcon,
+    color: 'text-status-needs-fix',
+  },
+  info: {
+    icon: InfoIcon,
+    color: 'text-muted-foreground',
+  },
+  waiting: {
+    icon: CircleDotIcon,
+    color: 'text-status-planning',
+  },
+};
+
+export function ProgressItem({ entry }: ProgressItemProps) {
+  const config = STATUS_CONFIG[entry.status] ?? STATUS_CONFIG.info;
+  const Icon = config.icon;
+
+  return (
+    <div className="flex items-start gap-2.5 px-4 py-2 hover:bg-muted/30 transition-colors">
+      {/* 时间线连接线 */}
+      <div className="flex flex-col items-center pt-0.5">
+        <Icon
+          size={14}
+          className={cn(config.color, config.iconAnimate)}
+        />
+      </div>
+
+      {/* 内容 */}
+      <div className="flex-1 min-w-0">
+        {/* 翻译后的PM语言消息 */}
+        <p className="text-xs text-foreground leading-relaxed">
+          {entry.pmMessage}
+        </p>
+
+        {/* 节点标签 + 时间 */}
+        <div className="mt-0.5 flex items-center gap-2">
+          {entry.nodeLabel && (
+            <span className="text-[10px] text-muted-foreground/70 truncate">
+              {entry.nodeLabel}
+            </span>
+          )}
+          <span className="text-[10px] text-muted-foreground/40">
+            {new Date(entry.timestamp).toLocaleTimeString('zh-CN', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            })}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## 5. 验收面板
+
+### 5.1 `components/acceptance/AcceptancePanel.tsx` — 四阶段验收主容器
+
+产品规格书第8章定义了四阶段验收流程：A(功能清单概览) -> B(逐功能引导验收) -> C(问题定位) -> D(验收总结)。
+
+```tsx
+'use client';
+
+import { useUIStore } from '@/stores/ui-store';
+import { FeatureChecklist } from './FeatureChecklist';
+import { GuidedReview } from './GuidedReview';
+import { ProblemLocator } from './ProblemLocator';
+import { AcceptanceSummary } from './AcceptanceSummary';
+
+export type AcceptancePhase = 'A' | 'B' | 'C' | 'D';
+
+export function AcceptancePanel() {
+  const phase = useUIStore((s) => s.acceptancePhase);
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      {/* 阶段指示条 */}
+      <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
+        <span className="text-sm font-medium text-foreground mr-4">引导式验收</span>
+        <div className="flex items-center gap-1">
+          <PhaseIndicator current={phase} phase="A" label="概览" />
+          <PhaseArrow />
+          <PhaseIndicator current={phase} phase="B" label="逐项验收" />
+          <PhaseArrow />
+          <PhaseIndicator current={phase} phase="C" label="问题定位" />
+          <PhaseArrow />
+          <PhaseIndicator current={phase} phase="D" label="总结" />
+        </div>
+      </div>
+
+      {/* 阶段内容 */}
+      <div className="flex-1 overflow-y-auto">
+        {phase === 'A' && <FeatureChecklist />}
+        {phase === 'B' && <GuidedReview />}
+        {phase === 'C' && <ProblemLocator />}
+        {phase === 'D' && <AcceptanceSummary />}
+      </div>
+    </div>
+  );
+}
+
+function PhaseIndicator({
+  current,
+  phase,
+  label,
+}: {
+  current: AcceptancePhase;
+  phase: AcceptancePhase;
+  label: string;
+}) {
+  const isCurrent = current === phase;
+  const isPast = current > phase;
+
+  return (
+    <span
+      className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+        isCurrent
+          ? 'bg-primary text-primary-foreground'
+          : isPast
+            ? 'bg-status-confirmed/10 text-status-confirmed'
+            : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      {phase}. {label}
+    </span>
+  );
+}
+
+function PhaseArrow() {
+  return <span className="text-[10px] text-muted-foreground/40 mx-0.5">{'>'}</span>;
+}
+```
+
+### 5.2 `components/acceptance/FeatureChecklist.tsx` — 阶段A功能清单
+
+规格书8.1.1节：PM打开验收页面第一眼看到的是功能清单总览 -- "8个功能全部就绪，等你验收"。
+
+```tsx
+'use client';
+
+import { useUIStore } from '@/stores/ui-store';
+import { useDagStore } from '@/stores/dag-store';
+import { cn } from '@/lib/utils';
+import {
+  CheckCircleIcon,
+  AlertTriangleIcon,
+  CircleDotIcon,
+} from 'lucide-react';
+
+export function FeatureChecklist() {
+  const setAcceptancePhase = useUIStore((s) => s.setAcceptancePhase);
+  const nodes = useDagStore((s) => s.getBusinessNodes());
+
+  const readyCount = nodes.filter(
+    (n) => n.status === 'previewable' || n.status === 'confirmed'
+  ).length;
+
+  return (
+    <div className="p-6 max-w-2xl mx-auto">
+      {/* 总览卡片（规格书8.1.1: summary_card） */}
+      <div className="rounded-xl border border-border bg-surface p-5 mb-6">
+        <h2 className="text-lg font-semibold text-foreground">
+          {readyCount === nodes.length
+            ? `${nodes.length}个功能全部就绪，等你验收`
+            : `${readyCount}/${nodes.length}个功能就绪`}
+        </h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          预计需要{Math.max(nodes.length * 3, 10)}-{nodes.length * 4}分钟
+        </p>
+      </div>
+
+      {/* 功能清单 */}
+      <div className="space-y-2">
+        {nodes.map((node, idx) => {
+          const isReady =
+            node.status === 'previewable' || node.status === 'confirmed';
+          const hasFix = node.status === 'needs_fix';
+
+          return (
+            <div
+              key={node.id}
+              className={cn(
+                'flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors',
+                isReady
+                  ? 'border-border bg-surface'
+                  : hasFix
+                    ? 'border-status-needs-fix/30 bg-status-needs-fix/5'
+                    : 'border-border/50 bg-muted/30'
+              )}
+            >
+              {/* 序号 */}
+              <span className="text-xs text-muted-foreground w-5 text-center shrink-0">
+                {idx + 1}
+              </span>
+
+              {/* 状态图标 */}
+              {isReady ? (
+                <CheckCircleIcon
+                  size={16}
+                  className="shrink-0 text-status-confirmed"
+                />
+              ) : hasFix ? (
+                <AlertTriangleIcon
+                  size={16}
+                  className="shrink-0 text-status-needs-fix"
+                />
+              ) : (
+                <CircleDotIcon
+                  size={16}
+                  className="shrink-0 text-muted-foreground"
+                />
+              )}
+
+              {/* 功能名 + 说明 */}
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">
+                  {node.label}
+                </p>
+                {node.description && (
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    {node.description}
+                  </p>
+                )}
+              </div>
+
+              {/* 预估验收时间 */}
+              <span className="shrink-0 text-[10px] text-muted-foreground">
+                ~{node.estimatedReviewTime ?? '3分钟'}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 操作按钮（规格书8.1.1: actions） */}
+      <div className="mt-6 flex gap-3">
+        <button
+          onClick={() => setAcceptancePhase('B')}
+          className="flex-1 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        >
+          开始完整验收
+        </button>
+        <button
+          onClick={() => setAcceptancePhase('B')}
+          className="rounded-lg border border-border px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+        >
+          快速验收
+        </button>
+      </div>
+    </div>
+  );
+}
+```
+
+### 5.3 `components/acceptance/GuidedReview.tsx` — 阶段B逐功能引导
+
+规格书8.1.2节：逐个功能展示截图+是否题。PM核心动作：看截图 -> 回答2-3个问题 -> 下一个。
+
+```tsx
+'use client';
+
+import { useState } from 'react';
+import { useUIStore } from '@/stores/ui-store';
+import { useDagStore } from '@/stores/dag-store';
+import { cn } from '@/lib/utils';
+import { ChevronLeftIcon, ChevronRightIcon, ImageIcon } from 'lucide-react';
+
+interface QuestionAnswer {
+  questionId: string;
+  answer: 'yes' | 'no' | null;
+}
+
+export function GuidedReview() {
+  const setAcceptancePhase = useUIStore((s) => s.setAcceptancePhase);
+  const nodes = useDagStore((s) => s.getBusinessNodes());
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, QuestionAnswer[]>>({});
+
+  const currentNode = nodes[currentIdx];
+  if (!currentNode) return null;
+
+  const nodeQuestions = currentNode.acceptanceQuestions ?? [
+    { id: `${currentNode.id}-completeness`, question: `${currentNode.label}的功能是否完整？`, type: 'yes_no' as const },
+    { id: `${currentNode.id}-ux`, question: '操作流程是否顺畅？', type: 'yes_no' as const },
+  ];
+
+  const nodeAnswers = answers[currentNode.id] ?? nodeQuestions.map((q) => ({
+    questionId: q.id,
+    answer: null,
+  }));
+
+  const setAnswer = (questionId: string, answer: 'yes' | 'no') => {
+    const updated = nodeAnswers.map((qa) =>
+      qa.questionId === questionId ? { ...qa, answer } : qa
+    );
+    setAnswers((prev) => ({ ...prev, [currentNode.id]: updated }));
+  };
+
+  const allAnswered = nodeAnswers.every((qa) => qa.answer !== null);
+  const hasIssue = nodeAnswers.some((qa) => qa.answer === 'no');
+
+  const goNext = () => {
+    if (hasIssue) {
+      setAcceptancePhase('C');
+      return;
+    }
+    if (currentIdx < nodes.length - 1) {
+      setCurrentIdx(currentIdx + 1);
+    } else {
+      setAcceptancePhase('D');
+    }
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      {/* 进度条 */}
+      <div className="shrink-0 px-6 pt-4">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs text-muted-foreground">
+            {currentIdx + 1} / {nodes.length} 功能验收中
+          </span>
+          <span className="text-xs font-medium text-foreground">
+            {currentNode.label}
+          </span>
+        </div>
+        <div className="h-1 rounded-full bg-muted overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all duration-300"
+            style={{ width: `${((currentIdx + 1) / nodes.length) * 100}%` }}
+          />
+        </div>
+      </div>
+
+      {/* 截图展示区（规格书8.1.2: screenshots.steps） */}
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="rounded-xl border border-border bg-muted/30 aspect-video flex items-center justify-center mb-6">
+          {currentNode.screenshots && currentNode.screenshots.length > 0 ? (
+            <img
+              src={currentNode.screenshots[0].url}
+              alt={currentNode.screenshots[0].pageTitle}
+              className="w-full h-full object-contain rounded-xl"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <ImageIcon size={32} />
+              <span className="text-xs">截图将在Preview部署后生成</span>
+            </div>
+          )}
+        </div>
+
+        {/* 是否题（规格书8.1.2: questions） */}
+        <div className="space-y-3">
+          {nodeQuestions.map((q, qIdx) => {
+            const qa = nodeAnswers.find((a) => a.questionId === q.id);
+            return (
+              <div
+                key={q.id}
+                className="rounded-lg border border-border bg-surface p-4"
+              >
+                <p className="text-sm text-foreground mb-3">
+                  {qIdx + 1}. {q.question}
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setAnswer(q.id, 'yes')}
+                    className={cn(
+                      'flex-1 rounded-md border py-2 text-sm font-medium transition-colors',
+                      qa?.answer === 'yes'
+                        ? 'border-status-confirmed bg-status-confirmed/10 text-status-confirmed'
+                        : 'border-border text-foreground hover:bg-muted'
+                    )}
+                  >
+                    是
+                  </button>
+                  <button
+                    onClick={() => setAnswer(q.id, 'no')}
+                    className={cn(
+                      'flex-1 rounded-md border py-2 text-sm font-medium transition-colors',
+                      qa?.answer === 'no'
+                        ? 'border-status-needs-fix bg-status-needs-fix/10 text-status-needs-fix'
+                        : 'border-border text-foreground hover:bg-muted'
+                    )}
+                  >
+                    否
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* 底部操作 */}
+      <div className="shrink-0 flex items-center justify-between border-t border-border px-6 py-3">
+        <button
+          onClick={() => currentIdx > 0 && setCurrentIdx(currentIdx - 1)}
+          disabled={currentIdx === 0}
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"
+        >
+          <ChevronLeftIcon size={16} />
+          上一个
+        </button>
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => setAcceptancePhase('C')}
+            className="rounded-md border border-border px-4 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+          >
+            有问题
+          </button>
+          <button
+            onClick={goNext}
+            disabled={!allAnswered}
+            className="flex items-center gap-1 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
+          >
+            {currentIdx === nodes.length - 1 ? '完成验收' : '没问题，下一个'}
+            <ChevronRightIcon size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+```
+
+### 5.4 `components/acceptance/ProblemLocator.tsx` — 阶段C问题定位
+
+规格书8.1.3节：从粗到细用选择题缩小范围。定位流程：哪个方面有问题? -> 具体是什么? -> 期望怎么修? -> 截图兜底。
+
+```tsx
+'use client';
+
+import { useState } from 'react';
+import { useUIStore } from '@/stores/ui-store';
+import { cn } from '@/lib/utils';
+import { UploadIcon, ArrowLeftIcon } from 'lucide-react';
+
+type LocatorStage = 'which_aspect' | 'what_exactly' | 'how_to_fix' | 'screenshot_fallback';
+
+/** 规格书8.1.3: WhichAspect选项 */
+const ASPECT_CHOICES = [
+  '页面看起来不对（样式/布局/颜色）',
+  '操作不对（点了没反应/跳转错误）',
+  '数据不对（显示的信息有误）',
+  '逻辑不对（规则/计算结果不符合预期）',
+  '缺少功能（应该有但没有的东西）',
+  '说不清楚（我截图标注）',
+];
+
+/** 规格书8.1.3: WhatExactly根据上一步动态生成 */
+const DETAIL_MAP: Record<string, string[]> = {
+  '页面看起来不对（样式/布局/颜色）': [
+    '颜色不对',
+    '字体/文字大小不对',
+    '间距/对齐不对',
+    '图标/图片不对',
+    '整体布局需要调整',
+    '其他（我截图标注）',
+  ],
+  '操作不对（点了没反应/跳转错误）': [
+    '按钮点了没反应',
+    '跳转到了错误的页面',
+    '表单提交后没反馈',
+    '加载一直转圈',
+    '其他（我截图标注）',
+  ],
+  '数据不对（显示的信息有误）': [
+    '显示的数字/金额不对',
+    '显示了不该显示的数据',
+    '缺少应该显示的字段',
+    '排序/筛选结果不对',
+    '其他（我截图标注）',
+  ],
+  '逻辑不对（规则/计算结果不符合预期）': [
+    '计算结果不对',
+    '条件判断不对',
+    '流程顺序不对',
+    '权限控制不对',
+    '其他（我截图标注）',
+  ],
+  '缺少功能（应该有但没有的东西）': [
+    '缺少一个按钮/操作入口',
+    '缺少一个页面',
+    '缺少一个字段/信息',
+    '缺少某个流程步骤',
+    '其他（我描述一下）',
+  ],
+};
+
+export function ProblemLocator() {
+  const setAcceptancePhase = useUIStore((s) => s.setAcceptancePhase);
+  const [stage, setStage] = useState<LocatorStage>('which_aspect');
+  const [selectedAspect, setSelectedAspect] = useState<string | null>(null);
+  const [selectedDetail, setSelectedDetail] = useState<string | null>(null);
+  const [freeText, setFreeText] = useState('');
+
+  const handleAspectSelect = (choice: string) => {
+    setSelectedAspect(choice);
+    if (choice.includes('说不清楚')) {
+      setStage('screenshot_fallback');
+    } else {
+      setStage('what_exactly');
+    }
+  };
+
+  const handleDetailSelect = (choice: string) => {
+    setSelectedDetail(choice);
+    if (choice.includes('其他') || choice.includes('截图')) {
+      setStage('screenshot_fallback');
+    } else {
+      setStage('how_to_fix');
+    }
+  };
+
+  const handleSubmitFix = () => {
+    // 将定位结果发送给AI修复（接入conversation store）
+    console.log('问题定位结果:', { selectedAspect, selectedDetail, freeText });
+    setAcceptancePhase('B'); // 修复后返回继续验收
+  };
+
+  return (
+    <div className="p-6 max-w-lg mx-auto">
+      {/* 返回按钮 */}
+      <button
+        onClick={() => {
+          if (stage === 'which_aspect') {
+            setAcceptancePhase('B');
+          } else {
+            setStage('which_aspect');
+            setSelectedAspect(null);
+            setSelectedDetail(null);
+          }
+        }}
+        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
+      >
+        <ArrowLeftIcon size={14} />
+        返回
+      </button>
+
+      {/* 阶段1：哪个方面有问题？ */}
+      {stage === 'which_aspect' && (
+        <div>
+          <h3 className="text-base font-semibold text-foreground mb-4">
+            这个功能哪里有问题？
+          </h3>
+          <div className="space-y-2">
+            {ASPECT_CHOICES.map((choice) => (
+              <button
+                key={choice}
+                onClick={() => handleAspectSelect(choice)}
+                className="block w-full rounded-lg border border-border bg-surface px-4 py-3 text-left text-sm text-foreground hover:bg-muted transition-colors"
+              >
+                {choice}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 阶段2：具体是什么问题？ */}
+      {stage === 'what_exactly' && selectedAspect && (
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">
+            已选：{selectedAspect}
+          </p>
+          <h3 className="text-base font-semibold text-foreground mb-4">
+            具体是什么问题？
+          </h3>
+          <div className="space-y-2">
+            {(DETAIL_MAP[selectedAspect] ?? ['其他（我描述一下）']).map(
+              (choice) => (
+                <button
+                  key={choice}
+                  onClick={() => handleDetailSelect(choice)}
+                  className="block w-full rounded-lg border border-border bg-surface px-4 py-3 text-left text-sm text-foreground hover:bg-muted transition-colors"
+                >
+                  {choice}
+                </button>
+              )
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 阶段3：期望怎么修改？（含AI复述确认） */}
+      {stage === 'how_to_fix' && (
+        <div>
+          <p className="text-xs text-muted-foreground mb-1">
+            问题：{selectedAspect} / {selectedDetail}
+          </p>
+          <h3 className="text-base font-semibold text-foreground mb-4">
+            期望怎么修改？
+          </h3>
+
+          {/* AI复述（规格书8.1.3: RestateMessage） */}
+          <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 mb-4">
+            <p className="text-sm text-foreground mb-1">我理解的问题：</p>
+            <p className="text-xs text-muted-foreground">
+              {selectedAspect} - {selectedDetail}
+            </p>
+          </div>
+
+          <textarea
+            value={freeText}
+            onChange={(e) => setFreeText(e.target.value)}
+            placeholder="补充说明（可选）：描述你期望的效果..."
+            rows={3}
+            className="w-full rounded-lg border border-border bg-surface p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+          />
+
+          <button
+            onClick={handleSubmitFix}
+            className="mt-4 w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            理解正确，去修复
+          </button>
+        </div>
+      )}
+
+      {/* 兜底：截图标注（规格书8.1.3: ScreenshotFallback） */}
+      {stage === 'screenshot_fallback' && (
+        <div>
+          <h3 className="text-base font-semibold text-foreground mb-4">
+            截个图，在有问题的地方画个圈或箭头
+          </h3>
+          <div className="flex flex-col items-center gap-3 rounded-xl border-2 border-dashed border-border py-10">
+            <UploadIcon size={32} className="text-muted-foreground" />
+            <div className="flex gap-2">
+              <button className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground hover:bg-primary/90 transition-colors">
+                截图上传
+              </button>
+              <button className="rounded-md border border-border px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors">
+                录制10秒屏幕
+              </button>
+            </div>
+          </div>
+          <textarea
+            value={freeText}
+            onChange={(e) => setFreeText(e.target.value)}
+            placeholder="补充说明..."
+            rows={2}
+            className="mt-4 w-full rounded-lg border border-border bg-surface p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+          />
+          <button
+            onClick={handleSubmitFix}
+            className="mt-4 w-full rounded-lg bg-primary py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            提交问题
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+```
+
+### 5.5 `components/acceptance/AcceptanceSummary.tsx` — 阶段D验收总结
+
+规格书8.1.4节：所有功能验收完毕后展示完整验收报告。PM决定：上线/返工/部分上线。
+
+```tsx
+'use client';
+
+import { useUIStore } from '@/stores/ui-store';
+import { useDagStore } from '@/stores/dag-store';
+import {
+  CheckCircle2Icon,
+  AlertCircleIcon,
+  MinusCircleIcon,
+  RocketIcon,
+  WrenchIcon,
+  RotateCcwIcon,
+} from 'lucide-react';
+
+export function AcceptanceSummary() {
+  const setAcceptancePhase = useUIStore((s) => s.setAcceptancePhase);
+  const setActiveCenterView = useUIStore((s) => s.setActiveCenterView);
+  const nodes = useDagStore((s) => s.getBusinessNodes());
+
+  // Mock验收结果（实际由验收流程中的answer汇总）
+  const passed = nodes.filter((n) => n.status === 'confirmed');
+  const needsFix = nodes.filter((n) => n.status === 'needs_fix');
+  const skipped = nodes.filter(
+    (n) => n.status !== 'confirmed' && n.status !== 'needs_fix'
+  );
+
+  const allPassed = needsFix.length === 0 && skipped.length === 0;
+
+  return (
+    <div className="p-6 max-w-2xl mx-auto">
+      {/* 总览标题（规格书8.1.4: headline） */}
+      <div className="text-center mb-8">
+        {allPassed ? (
+          <>
+            <CheckCircle2Icon
+              size={48}
+              className="mx-auto text-status-confirmed mb-3"
+            />
+            <h2 className="text-xl font-semibold text-foreground">
+              全部功能通过验收
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {nodes.length}个功能全部就绪，可以上线了
+            </p>
+          </>
+        ) : (
+          <>
+            <AlertCircleIcon
+              size={48}
+              className="mx-auto text-status-pending-confirm mb-3"
+            />
+            <h2 className="text-xl font-semibold text-foreground">
+              {passed.length}个功能通过，{needsFix.length}个需要修改
+            </h2>
+            {needsFix.length > 0 && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                预计修复时间：{needsFix.length * 5}-{needsFix.length * 10}分钟
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 功能分组列表 */}
+      <div className="space-y-4">
+        {/* 通过的 */}
+        {passed.length > 0 && (
+          <Section
+            title="已通过"
+            icon={<CheckCircle2Icon size={16} className="text-status-confirmed" />}
+            count={passed.length}
+          >
+            {passed.map((n) => (
+              <SummaryRow key={n.id} label={n.label} status="passed" />
+            ))}
+          </Section>
+        )}
+
+        {/* 需要修改的 */}
+        {needsFix.length > 0 && (
+          <Section
+            title="需要修改"
+            icon={<AlertCircleIcon size={16} className="text-status-needs-fix" />}
+            count={needsFix.length}
+          >
+            {needsFix.map((n) => (
+              <SummaryRow key={n.id} label={n.label} status="failed" />
+            ))}
+          </Section>
+        )}
+
+        {/* 跳过的 */}
+        {skipped.length > 0 && (
+          <Section
+            title="未验收"
+            icon={<MinusCircleIcon size={16} className="text-muted-foreground" />}
+            count={skipped.length}
+          >
+            {skipped.map((n) => (
+              <SummaryRow key={n.id} label={n.label} status="skipped" />
+            ))}
+          </Section>
+        )}
+      </div>
+
+      {/* 操作按钮（规格书8.1.4: actions） */}
+      <div className="mt-8 space-y-2">
+        {allPassed ? (
+          <button
+            onClick={() => setActiveCenterView('feature-map')}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+          >
+            <RocketIcon size={16} />
+            全部没问题，准备上线
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => setAcceptancePhase('B')}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+            >
+              <WrenchIcon size={16} />
+              修复后重新验收
+            </button>
+            <button
+              onClick={() => setActiveCenterView('feature-map')}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border py-3 text-sm font-medium text-foreground hover:bg-muted transition-colors"
+            >
+              先上线已通过的，问题功能后续修复
+            </button>
+          </>
+        )}
+        <button
+          onClick={() => setAcceptancePhase('A')}
+          className="flex w-full items-center justify-center gap-2 rounded-lg border border-border py-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <RotateCcwIcon size={14} />
+          重新验收所有功能
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  icon,
+  count,
+  children,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  count: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        {icon}
+        <span className="text-sm font-medium text-foreground">{title}</span>
+        <span className="text-xs text-muted-foreground">({count})</span>
+      </div>
+      <div className="space-y-1 pl-6">{children}</div>
+    </div>
+  );
+}
+
+function SummaryRow({
+  label,
+  status,
+}: {
+  label: string;
+  status: 'passed' | 'failed' | 'skipped';
+}) {
+  return (
+    <div className="flex items-center gap-2 rounded-md px-3 py-1.5 text-sm text-foreground">
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${
+          status === 'passed'
+            ? 'bg-status-confirmed'
+            : status === 'failed'
+              ? 'bg-status-needs-fix'
+              : 'bg-muted-foreground'
+        }`}
+      />
+      {label}
+    </div>
+  );
+}
+```
+
+---
+
+## 6. 状态管理
+
+### 6.1 `stores/conversation-store.ts` — 对话状态
+
+```ts
+import { create } from 'zustand';
+
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  /** AI消息可附带选择题（规格书2.2: 选择题优先原则） */
+  choices?: string[];
+  onChoiceSelect?: (choice: string) => void;
+}
+
+interface ConversationState {
+  /** 消息列表 */
+  messages: Message[];
+  /** 输入框当前值 */
+  inputValue: string;
+  /** AI是否正在流式输出 */
+  isStreaming: boolean;
+  /** 流式输出的当前累积内容 */
+  streamingContent: string;
+  /** 当前交互阶段（规格书2.1: I1-I5） */
+  currentInteraction: 'I1' | 'I2' | 'I3' | 'I4' | 'I5' | null;
+}
+
+interface ConversationActions {
+  setInputValue: (value: string) => void;
+  sendMessage: (content: string) => void;
+  appendAssistantMessage: (message: Omit<Message, 'id' | 'timestamp'>) => void;
+  setStreaming: (streaming: boolean) => void;
+  appendStreamingContent: (chunk: string) => void;
+  finalizeStreaming: () => void;
+  setCurrentInteraction: (interaction: ConversationState['currentInteraction']) => void;
+  clearMessages: () => void;
+}
+
+export const useConversationStore = create<ConversationState & ConversationActions>(
+  (set, get) => ({
+    // State
+    messages: [],
+    inputValue: '',
+    isStreaming: false,
+    streamingContent: '',
+    currentInteraction: null,
+
+    // Actions
+    setInputValue: (value) => set({ inputValue: value }),
+
+    sendMessage: (content) => {
+      const userMsg: Message = {
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        role: 'user',
+        content,
+        timestamp: Date.now(),
+      };
+      set((state) => ({
+        messages: [...state.messages, userMsg],
+        inputValue: '',
+      }));
+      // TODO: Phase 2接入实际AI API调用
+    },
+
+    appendAssistantMessage: (msg) => {
+      const fullMsg: Message = {
+        ...msg,
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+      };
+      set((state) => ({
+        messages: [...state.messages, fullMsg],
+      }));
+    },
+
+    setStreaming: (streaming) => set({ isStreaming: streaming }),
+
+    appendStreamingContent: (chunk) =>
+      set((state) => ({
+        streamingContent: state.streamingContent + chunk,
+      })),
+
+    finalizeStreaming: () => {
+      const { streamingContent } = get();
+      if (streamingContent) {
+        get().appendAssistantMessage({
+          role: 'assistant',
+          content: streamingContent,
+        });
+      }
+      set({ isStreaming: false, streamingContent: '' });
+    },
+
+    setCurrentInteraction: (interaction) =>
+      set({ currentInteraction: interaction }),
+
+    clearMessages: () =>
+      set({ messages: [], streamingContent: '', isStreaming: false }),
+  })
+);
+
+/** Selector: 获取最新的AI消息 */
+export const selectLatestAssistantMessage = (state: ConversationState) =>
+  [...state.messages].reverse().find((m) => m.role === 'assistant') ?? null;
+```
+
+### 6.2 `stores/dag-store.ts` — DAG功能地图状态
+
+```ts
+import { create } from 'zustand';
+import {
+  type Node,
+  type Edge,
+  type OnNodesChange,
+  type OnEdgesChange,
+  applyNodeChanges,
+  applyEdgeChanges,
+} from 'reactflow';
+
+/** 规格书4.2节：8种业务状态 */
+export type BusinessStatus =
+  | 'planning'
+  | 'designing'
+  | 'pending_confirm'
+  | 'developing'
+  | 'previewable'
+  | 'needs_fix'
+  | 'confirmed'
+  | 'live';
+
+/** 规格书4.1节：7种业务节点类型 */
+export type BusinessNodeType =
+  | 'feature'
+  | 'page'
+  | 'flow'
+  | 'data'
+  | 'connect'
+  | 'rule'
+  | 'milestone';
+
+/** ReactFlow节点的data payload */
+export interface BusinessNodeData {
+  label: string;
+  description?: string;
+  nodeType: BusinessNodeType;
+  status: BusinessStatus;
+  estimatedTime?: string;
+  /** 截图（规格书5.3.2: screenshots） */
+  screenshots?: Array<{
+    url: string;
+    pageTitle: string;
+  }>;
+  /** 验收问题（规格书5.3.2: acceptance_questions） */
+  acceptanceQuestions?: Array<{
+    id: string;
+    question: string;
+    type: 'yes_no' | 'choice';
+  }>;
+  /** 估算的验收时间 */
+  estimatedReviewTime?: string;
+}
+
+export interface BusinessEdgeData {
+  label?: string;
+}
+
+type RFNode = Node<BusinessNodeData>;
+type RFEdge = Edge<BusinessEdgeData>;
+
+interface DagState {
+  nodes: RFNode[];
+  edges: RFEdge[];
+  selectedNodeId: string | null;
+}
+
+interface DagActions {
+  onNodesChange: OnNodesChange;
+  onEdgesChange: OnEdgesChange;
+  setSelectedNodeId: (id: string | null) => void;
+  setNodes: (nodes: RFNode[]) => void;
+  setEdges: (edges: RFEdge[]) => void;
+  addNode: (node: RFNode) => void;
+  removeNode: (id: string) => void;
+  updateNodeStatus: (id: string, status: BusinessStatus) => void;
+  /** Selector: 获取扁平化的业务节点数据列表 */
+  getBusinessNodes: () => (BusinessNodeData & { id: string })[];
+}
+
+export const useDagStore = create<DagState & DagActions>((set, get) => ({
+  // State
+  nodes: [],
+  edges: [],
+  selectedNodeId: null,
+
+  // Actions
+  onNodesChange: (changes) =>
+    set((state) => ({
+      nodes: applyNodeChanges(changes, state.nodes),
+    })),
+
+  onEdgesChange: (changes) =>
+    set((state) => ({
+      edges: applyEdgeChanges(changes, state.edges),
+    })),
+
+  setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+
+  setNodes: (nodes) => set({ nodes }),
+
+  setEdges: (edges) => set({ edges }),
+
+  addNode: (node) =>
+    set((state) => ({ nodes: [...state.nodes, node] })),
+
+  removeNode: (id) =>
+    set((state) => ({
+      nodes: state.nodes.filter((n) => n.id !== id),
+      edges: state.edges.filter((e) => e.source !== id && e.target !== id),
+      selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId,
+    })),
+
+  updateNodeStatus: (id, status) =>
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, status } } : n
+      ),
+    })),
+
+  getBusinessNodes: () =>
+    get().nodes.map((n) => ({ id: n.id, ...n.data })),
+}));
+
+/** Selector: 获取选中节点的完整数据 */
+export const selectSelectedNode = (state: DagState) => {
+  if (!state.selectedNodeId) return null;
+  const node = state.nodes.find((n) => n.id === state.selectedNodeId);
+  return node ? { id: node.id, ...node.data } : null;
+};
+```
+
+### 6.3 `stores/pipeline-store.ts` — Pipeline进度状态
+
+```ts
+import { create } from 'zustand';
+
+/** 规格书3.1节：7个Pipeline Phase */
+export type PipelinePhase =
+  | 'Phase 1: 需求理解'
+  | 'Phase 2: 代码生成'
+  | 'Phase 3: 质量关卡'
+  | 'Phase 4: 测试'
+  | 'Phase 5: 部署Preview'
+  | 'Phase 6: 验收'
+  | 'Phase 7: 上线'
+  | null;
+
+export interface ProgressEntry {
+  id: string;
+  /** 翻译后的PM语言消息（规格书第6章：业务翻译层） */
+  pmMessage: string;
+  /** 关联的业务节点标签 */
+  nodeLabel?: string;
+  status: 'running' | 'completed' | 'error' | 'info' | 'waiting';
+  timestamp: number;
+}
+
+interface PipelineState {
+  currentPhase: PipelinePhase;
+  progressEntries: ProgressEntry[];
+  wsConnected: boolean;
+  /** 规格书3.4节：熔断状态 */
+  circuitBreaker: {
+    triggered: boolean;
+    reason?: string;
+  };
+}
+
+interface PipelineActions {
+  setCurrentPhase: (phase: PipelinePhase) => void;
+  addProgressEntry: (entry: Omit<ProgressEntry, 'id' | 'timestamp'>) => void;
+  clearProgress: () => void;
+  connectWebSocket: () => void;
+  disconnectWebSocket: () => void;
+  triggerCircuitBreaker: (reason: string) => void;
+  resetCircuitBreaker: () => void;
+}
+
+let wsInstance: WebSocket | null = null;
+
+export const usePipelineStore = create<PipelineState & PipelineActions>(
+  (set, get) => ({
+    // State
+    currentPhase: null,
+    progressEntries: [],
+    wsConnected: false,
+    circuitBreaker: { triggered: false },
+
+    // Actions
+    setCurrentPhase: (phase) => set({ currentPhase: phase }),
+
+    addProgressEntry: (entry) => {
+      const fullEntry: ProgressEntry = {
+        ...entry,
+        id: `prog-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+      };
+      set((state) => ({
+        progressEntries: [...state.progressEntries, fullEntry],
+      }));
+    },
+
+    clearProgress: () => set({ progressEntries: [] }),
+
+    connectWebSocket: () => {
+      if (wsInstance) {
+        wsInstance.close();
+      }
+
+      try {
+        // TODO: Phase 2替换为实际WebSocket地址
+        wsInstance = new WebSocket('ws://localhost:3001/ws/pipeline');
+
+        wsInstance.onopen = () => {
+          set({ wsConnected: true });
+        };
+
+        wsInstance.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'progress') {
+              get().addProgressEntry({
+                pmMessage: data.pmMessage,
+                nodeLabel: data.nodeLabel,
+                status: data.status,
+              });
+            }
+            if (data.type === 'phase_change') {
+              get().setCurrentPhase(data.phase);
+            }
+          } catch {
+            // ignore malformed messages
+          }
+        };
+
+        wsInstance.onclose = () => {
+          set({ wsConnected: false });
+          wsInstance = null;
+        };
+
+        wsInstance.onerror = () => {
+          set({ wsConnected: false });
+        };
+      } catch {
+        set({ wsConnected: false });
+      }
+    },
+
+    disconnectWebSocket: () => {
+      if (wsInstance) {
+        wsInstance.close();
+        wsInstance = null;
+      }
+      set({ wsConnected: false });
+    },
+
+    triggerCircuitBreaker: (reason) =>
+      set({ circuitBreaker: { triggered: true, reason } }),
+
+    resetCircuitBreaker: () =>
+      set({ circuitBreaker: { triggered: false, reason: undefined } }),
+  })
+);
+
+/** Selector: 获取最近N条进度 */
+export const selectRecentProgress = (n: number) => (state: PipelineState) =>
+  state.progressEntries.slice(-n);
+```
+
+### 6.4 `stores/ui-store.ts` — UI全局状态
+
+```ts
+import { create } from 'zustand';
+import type { AcceptancePhase } from '@/components/acceptance/AcceptancePanel';
+
+type MapView = 'dag' | 'kanban' | 'journey';
+type CenterView = 'feature-map' | 'acceptance';
+
+interface UIState {
+  /** 项目名称 */
+  projectName: string;
+  /** 功能地图视图模式（规格书4.3节：三个视图） */
+  mapView: MapView;
+  /** 中栏当前显示的面板 */
+  activeCenterView: CenterView;
+  /** 验收当前阶段（规格书8.1节：四阶段验收） */
+  acceptancePhase: AcceptancePhase;
+  /** 侧边栏折叠状态 */
+  leftPanelCollapsed: boolean;
+  rightPanelCollapsed: boolean;
+}
+
+interface UIActions {
+  setProjectName: (name: string) => void;
+  setMapView: (view: MapView) => void;
+  setActiveCenterView: (view: CenterView) => void;
+  setAcceptancePhase: (phase: AcceptancePhase) => void;
+  toggleLeftPanel: () => void;
+  toggleRightPanel: () => void;
+}
+
+export const useUIStore = create<UIState & UIActions>((set) => ({
+  // State
+  projectName: '',
+  mapView: 'dag',
+  activeCenterView: 'feature-map',
+  acceptancePhase: 'A',
+  leftPanelCollapsed: false,
+  rightPanelCollapsed: false,
+
+  // Actions
+  setProjectName: (name) => set({ projectName: name }),
+  setMapView: (view) => set({ mapView: view }),
+  setActiveCenterView: (view) => set({ activeCenterView: view }),
+  setAcceptancePhase: (phase) => set({ acceptancePhase: phase }),
+  toggleLeftPanel: () =>
+    set((state) => ({ leftPanelCollapsed: !state.leftPanelCollapsed })),
+  toggleRightPanel: () =>
+    set((state) => ({ rightPanelCollapsed: !state.rightPanelCollapsed })),
+}));
+```
+
+---
+
+## 7. 样式系统
+
+### 7.1 `tailwind.config.ts` — 自定义主题
+
+```ts
+import type { Config } from 'tailwindcss';
+
+const config: Config = {
+  content: [
+    './app/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './lib/**/*.{ts,tsx}',
+  ],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
+      },
+      colors: {
+        /* 语义色（通过CSS变量实现暗色/亮色切换） */
+        background: 'var(--color-background)',
+        foreground: 'var(--color-foreground)',
+        surface: 'var(--color-surface)',
+        border: 'var(--color-border)',
+        primary: {
+          DEFAULT: 'var(--color-primary)',
+          foreground: 'var(--color-primary-foreground)',
+        },
+        muted: {
+          DEFAULT: 'var(--color-muted)',
+          foreground: 'var(--color-muted-foreground)',
+        },
+
+        /* 规格书4.2节：8种业务状态色 */
+        status: {
+          planning: 'var(--color-status-planning)',
+          designing: 'var(--color-status-designing)',
+          'pending-confirm': 'var(--color-status-pending-confirm)',
+          developing: 'var(--color-status-developing)',
+          previewable: 'var(--color-status-previewable)',
+          'needs-fix': 'var(--color-status-needs-fix)',
+          confirmed: 'var(--color-status-confirmed)',
+          live: 'var(--color-status-live)',
+        },
+      },
+
+      /* ring色（用于节点边框） */
+      ringColor: {
+        'status-planning': 'var(--color-status-planning)',
+        'status-designing': 'var(--color-status-designing)',
+        'status-pending-confirm': 'var(--color-status-pending-confirm)',
+        'status-developing': 'var(--color-status-developing)',
+        'status-previewable': 'var(--color-status-previewable)',
+        'status-needs-fix': 'var(--color-status-needs-fix)',
+        'status-confirmed': 'var(--color-status-confirmed)',
+        'status-live': 'var(--color-status-live)',
+      },
+
+      animation: {
+        /* 规格书4.2节：开发中节点用旋转动画 */
+        'spin-slow': 'spin 3s linear infinite',
+        /* 光标闪烁（流式输出） */
+        blink: 'blink 1s step-end infinite',
+      },
+      keyframes: {
+        blink: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0' },
+        },
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;
+```
+
+### 7.2 `styles/globals.css` — 全局CSS变量
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /* ========================================
+   * 亮色主题（默认）
+   * ======================================== */
+  :root {
+    /* 基础语义色 */
+    --color-background: #ffffff;
+    --color-foreground: #0f172a;
+    --color-surface: #f8fafc;
+    --color-border: #e2e8f0;
+    --color-primary: #2563eb;
+    --color-primary-foreground: #ffffff;
+    --color-muted: #f1f5f9;
+    --color-muted-foreground: #64748b;
+
+    /* 规格书4.2节：业务状态色 */
+    --color-status-planning: #94a3b8;       /* 灰色：待规划 */
+    --color-status-designing: #60a5fa;      /* 蓝色：方案中 */
+    --color-status-pending-confirm: #fb923c; /* 橙色：待确认（脉冲闪烁） */
+    --color-status-developing: #3b82f6;     /* 蓝色：开发中（旋转动画） */
+    --color-status-previewable: #a855f7;    /* 紫色：可预览（脉冲闪烁） */
+    --color-status-needs-fix: #ef4444;      /* 红色：需修改 */
+    --color-status-confirmed: #22c55e;      /* 绿色：已确认 */
+    --color-status-live: #16a34a;           /* 深绿色：已上线 */
+  }
+
+  /* ========================================
+   * 暗色主题
+   * ======================================== */
+  .dark {
+    --color-background: #0f172a;
+    --color-foreground: #f1f5f9;
+    --color-surface: #1e293b;
+    --color-border: #334155;
+    --color-primary: #3b82f6;
+    --color-primary-foreground: #ffffff;
+    --color-muted: #1e293b;
+    --color-muted-foreground: #94a3b8;
+
+    --color-status-planning: #64748b;
+    --color-status-designing: #60a5fa;
+    --color-status-pending-confirm: #f97316;
+    --color-status-developing: #3b82f6;
+    --color-status-previewable: #a855f7;
+    --color-status-needs-fix: #f87171;
+    --color-status-confirmed: #4ade80;
+    --color-status-live: #22c55e;
+  }
+
+  /* 全局排版 */
+  body {
+    @apply text-foreground;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* 滚动条（仅Webkit） */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-muted-foreground);
+  }
+}
+```
+
+---
+
+## 依赖清单
+
+执行前先安装以下依赖：
+
+```bash
+npm install react-resizable-panels reactflow zustand next-themes lucide-react clsx tailwind-merge
+npm install -D @types/node @types/react @types/react-dom typescript tailwindcss postcss autoprefixer
+```
+
+## 文件清单
+
+| # | 文件路径 | 行数 | 职责 |
+|---|---------|------|------|
+| 1 | `app/layout.tsx` | ~30 | 根布局，字体加载，ThemeProvider |
+| 2 | `components/providers/ThemeProvider.tsx` | ~10 | next-themes包装 |
+| 3 | `app/page.tsx` | ~15 | 工作台入口页 |
+| 4 | `components/layout/WorkbenchLayout.tsx` | ~70 | 三栏react-resizable-panels布局 |
+| 5 | `components/layout/TopBar.tsx` | ~95 | 顶部栏：项目名+视图切换+预览 |
+| 6 | `lib/utils.ts` | ~6 | cn()工具函数 |
+| 7 | `components/conversation/ConversationPanel.tsx` | ~110 | 对话列表+输入框 |
+| 8 | `components/conversation/MessageBubble.tsx` | ~80 | 消息气泡（含选择题） |
+| 9 | `components/conversation/StreamingMessage.tsx` | ~30 | AI流式输出渲染 |
+| 10 | `components/feature-map/FeatureMapPanel.tsx` | ~90 | ReactFlow容器+图例 |
+| 11 | `components/feature-map/BusinessNode.tsx` | ~140 | 自定义节点（图标+状态色+hover详情） |
+| 12 | `components/feature-map/BusinessEdge.tsx` | ~60 | 自定义边（箭头+标签） |
+| 13 | `components/feature-map/MiniMap.tsx` | ~30 | 缩略导航 |
+| 14 | `components/progress/ProgressPanel.tsx` | ~65 | 实时进度流+WS状态 |
+| 15 | `components/progress/ProgressItem.tsx` | ~60 | 单条进度（翻译后的PM语言） |
+| 16 | `components/acceptance/AcceptancePanel.tsx` | ~60 | 四阶段验收主容器+阶段指示条 |
+| 17 | `components/acceptance/FeatureChecklist.tsx` | ~90 | 阶段A功能清单概览 |
+| 18 | `components/acceptance/GuidedReview.tsx` | ~130 | 阶段B逐功能截图+是否题 |
+| 19 | `components/acceptance/ProblemLocator.tsx` | ~160 | 阶段C问题定位（选择题缩小范围） |
+| 20 | `components/acceptance/AcceptanceSummary.tsx` | ~130 | 阶段D验收总结 |
+| 21 | `stores/conversation-store.ts` | ~90 | 对话状态+actions |
+| 22 | `stores/dag-store.ts` | ~100 | DAG节点/边/选中状态 |
+| 23 | `stores/pipeline-store.ts` | ~110 | Pipeline进度+WebSocket |
+| 24 | `stores/ui-store.ts` | ~45 | 全局UI状态 |
+| 25 | `tailwind.config.ts` | ~65 | 自定义主题+状态色+动画 |
+| 26 | `styles/globals.css` | ~60 | CSS变量（亮色/暗色）+全局样式 |
+| | **合计** | **~约1950行** | |
