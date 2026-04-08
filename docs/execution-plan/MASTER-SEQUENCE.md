@@ -97,7 +97,7 @@
      ```
      src/
        app/api/
-         auth/                 # NextAuth.js 认证
+         auth/                 # Supabase Auth 认证
          projects/             # 项目 CRUD
          dag/                  # DAG 节点/边操作
          pipeline/             # Pipeline 启动/停止/状态
@@ -185,23 +185,24 @@
 ### STEP-008: 配置数据库Schema（Supabase + PostgreSQL）
 **前置条件：** STEP-006完成
 **执行：**
-  1. `# Prisma已移除，使用Supabase Client（见FIX-R2-003）`
-  2. `[REPLACED-BY-SUPABASE] init --datasource-provider postgresql`
-  3. 在 Supabase SQL Editor 或 migration 文件中 定义 12 张核心表（对应第12章 12.2.3）：
+  1. 创建 `src/lib/db/supabase.ts` — Supabase Client 单例（浏览器端+服务端+Admin三个实例）。代码参考 FIX-005b。
+  2. 创建 `src/lib/db/migrations/001_initial.sql` — 12张核心表的完整DDL。内容来自 `00-project-init.md` 第6节。
+  3. 在 Supabase Dashboard SQL Editor 中执行 `001_initial.sql`，创建所有表：
      - users、projects、nodes、edges、node_executions、file_records
      - pipeline_runs、acceptance_records、dag_events、dag_snapshots
      - cost_entries、dependency_manifests
-  4. 配置 `.env` 中的 DATABASE_URL（开发环境指向本地或 Supabase）
-  5. 创建 `src/lib/db/supabase.ts` -- Supabase Client 单例（见FIX-005）
+  4. 配置 `.env.local` 中的 `NEXT_PUBLIC_SUPABASE_URL` 和 `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+  5. 验证连接：创建 `scripts/test-db-connection.mjs`，用 Supabase Client 查询 `select count(*) from projects`
 **验证：**
-  - `[REPLACED-BY-SUPABASE] validate` Schema 验证通过
-  - `[REPLACED-BY-SUPABASE] generate` Supabase Client 初始化成功
-  - 所有表的字段与第12章 SQL 定义一致
+  - `node scripts/test-db-connection.mjs` 返回 `{ count: 0 }` 无报错
+  - Supabase Dashboard 中可看到所有12张表
+  - `src/lib/db/supabase.ts` 导出 `createBrowserClient()`、`createServerClient()`、`createAdminClient()` 三个函数
 **产出：**
-  - `src/lib/db/migrations/001_initial.sql`
-  - `src/lib/db/supabase.ts` Supabase Client 单例
-  - `.env` 数据库配置
-**预估耗时：** 3小时
+  - `src/lib/db/supabase.ts` — Supabase Client 单例
+  - `src/lib/db/migrations/001_initial.sql` — DDL文件
+  - `scripts/test-db-connection.mjs` — 连接测试脚本
+  - `.env.local` 数据库配置
+**预估耗时：** 2小时
 **可并行：** 否（依赖类型定义完成）
 
 ---
@@ -263,23 +264,26 @@
 
 ---
 
-### STEP-012: 配置NextAuth.js认证
+### STEP-012: 配置Supabase Auth认证
 **前置条件：** STEP-008完成
 **执行：**
-  1. `npm install next-auth@beta [REPLACED-BY-SUPABASE-AUTH]`
-  2. 创建 `src/app/api/auth/[...nextauth]/route.ts` -- NextAuth v5 路由
-  3. 创建 `src/lib/auth.ts` -- 配置 Supabase Auth、GitHub/Google OAuth Provider（Phase 1 最少支持一种）
-  4. 创建 `src/components/auth/sign-in-button.tsx` 和 `sign-out-button.tsx`
-  5. 创建认证中间件 `src/middleware.ts` -- 保护 /dashboard 路由
-  6. 在 `.env` 添加 AUTH_SECRET、GITHUB_CLIENT_ID、GITHUB_CLIENT_SECRET
+  1. 在 Supabase Dashboard 启用 Email/Password 认证（Authentication > Providers）
+  2. 创建 `src/lib/auth.ts` — Supabase Auth 客户端封装（login/signup/logout/getSession）。代码参考 FIX-R2-003。
+  3. 创建 `src/app/auth/callback/route.ts` — OAuth回调处理（Supabase Auth Code Exchange）
+  4. 创建 `src/middleware.ts` — 路由保护中间件，未登录用户访问/dashboard时重定向到/login
+  5. 创建 `src/components/auth/LoginForm.tsx` 和 `src/components/auth/LogoutButton.tsx`
+  6. 创建 `src/app/login/page.tsx` — 登录页面
+  7. 在 Supabase Dashboard 创建 trigger：auth.users 新增记录时自动同步到 public.users 表
 **验证：**
-  - 访问 /dashboard 未登录时跳转到登录页
-  - OAuth 登录后用户信息写入 users 表
-  - 登出后 session 清除
+  - 访问 /dashboard 未登录时跳转到 /login
+  - 邮箱密码注册后，public.users 表自动新增记录
+  - 登出后 session 清除，重新访问 /dashboard 跳转登录
 **产出：**
-  - `src/app/api/auth/` 路由
-  - `src/lib/auth.ts`、`src/middleware.ts`
-  - 认证相关组件
+  - `src/lib/auth.ts` — Supabase Auth 封装
+  - `src/app/auth/callback/route.ts` — OAuth 回调
+  - `src/middleware.ts` — 路由保护
+  - `src/components/auth/LoginForm.tsx`、`LogoutButton.tsx`
+  - `src/app/login/page.tsx`
 **预估耗时：** 2小时
 **可并行：** 否（依赖 Supabase Schema）
 
@@ -342,20 +346,24 @@
 ### STEP-015: 数据库迁移 + 种子数据 + 冒烟测试
 **前置条件：** STEP-014完成
 **执行：**
-  1. `npx [REPLACED-BY-SUPABASE] --name init` -- 执行首次数据库迁移
-  2. 创建 `scripts/seed-data.mjs` -- 种子数据：一个测试用户 + 一个示例项目（"电商平台"） + 5 个业务节点 + 4 条边
-  3. `[REPLACED-BY-SUPABASE] db seed` -- 填充种子数据
-  4. 创建 `scripts/smoke-test.ts` -- 端到端冒烟测试脚本
-     - 启动 dev server -> 调用项目 API -> 调用 DAG API -> 验证返回数据
+  1. 确认 STEP-008 中已在 Supabase Dashboard 执行了 `001_initial.sql`（12张表已创建）
+  2. 创建 `scripts/seed-data.mjs` — 使用 Supabase Admin Client 插入种子数据。代码参考 FIX-R2-002。
+     - 用 `supabase.auth.admin.createUser()` 创建测试用户（不是直接INSERT users表）
+     - 创建示例项目"电商平台" + 5个业务节点 + 4条边
+  3. 执行 `node scripts/seed-data.mjs` 填充种子数据
+  4. 创建 `scripts/smoke-test.mjs` — 端到端冒烟测试脚本
+     - 用 Supabase Client 查询 projects 表确认种子数据存在
+     - 查询 nodes 表确认5个节点
+     - 查询 edges 表确认4条边
+     - 验证 RLS 策略：用非owner用户查询不到别人的项目
 **验证：**
-  - 数据库迁移成功，12 张表全部创建
-  - 种子数据填充成功
-  - 冒烟测试通过：项目创建、节点创建、拓扑排序均返回正确结果
+  - `node scripts/seed-data.mjs` 无报错
+  - `node scripts/smoke-test.mjs` 全部检查通过
+  - Supabase Dashboard 中可看到种子数据
 **产出：**
-  - `src/lib/db/migrations/` 首次迁移文件
   - `scripts/seed-data.mjs`
-  - `scripts/smoke-test.ts`
-**预估耗时：** 2小时
+  - `scripts/smoke-test.mjs`
+**预估耗时：** 1.5小时
 **可并行：** 否（阶段一收尾，验证所有骨架组件协同工作）
 
 ---
