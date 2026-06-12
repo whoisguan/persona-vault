@@ -922,6 +922,7 @@ Execute **before** a tool call is permitted. Can block the call (`exitCode: 1`) 
 | `block-remote-write` | Any `Bash` command containing `ssh`, `scp`, `rsync`, `Copy-Item`, `Invoke-Command` combined with a production host pattern | Intercepts remote write operations and requires user confirmation via PROMPT |
 | `protect-env-files` | Any `Edit` or `Write` tool targeting a file matching `*.env*` pattern | Prevents accidental modification of environment files |
 | `count-cu` | Any `Edit` tool call | Increments a per-session CU (Change Unit) counter; triggers a warning when the batch limit (5 CU) is approached |
+| `shared-worktree-commit` | Any `Bash` command containing `git add -A`, `git add .`, `git add --all`, or `git commit -a`/`-am` | Blocks catch-all staging when multiple agents share one working tree, preventing one agent from sweeping another's unstaged, half-finished work into a commit |
 
 #### PostToolUse Hooks
 
@@ -1027,7 +1028,23 @@ The `count-cu` hook maintains a running CU count per session:
 
 This provides a mechanical backstop for the batch limit rule, independent of whether the AI has retained the rule in context.
 
-中文摘要：Hook体系分两类——PreToolUse（执行前拦截：远程写操作拦截、.env保护、CU计数）和PostToolUse（执行后记录：agent调用追踪）。设计三原则：只hook高代价低误报的规则、每个hook只执行一条规则、hook故障时优雅降级不阻塞工作。Hook脚本必须只读、有超时、返回退出码。CU计数hook在临近批量限制时自动警告。
+### 2.7 Shared Worktree Discipline (Multi-Agent Parallelism)
+
+When several agent windows run concurrently against the **same local working tree and the same remote repository**, two classes of collision arise — and the framework enforces each at a different layer.
+
+**Collision 1 — working on a stale base.** Another window (or another device) may have already pushed new commits. If you start editing from an out-of-date local tree, your push is rejected and you are forced into conflict resolution.
+
+> **Iron rule 1 (soft, rule-file only):** Before touching shared project code, run `git pull --rebase`. Rebase keeps history linear (no merge scars). There is no clean tool-call to intercept here, so this rule lives in the rule file and relies on AI discipline — not a hook.
+
+**Collision 2 — sweeping another agent's unfinished work.** Because the working tree is shared, a catch-all stage (`git add -A` / `git add .` / `git commit -a`) grabs *every* unstaged change in the tree — including files another window is still editing — and commits someone else's half-finished work under your commit. This is a real, observed failure mode of shared-worktree parallelism, not a hypothetical.
+
+> **Iron rule 2 (hard, hook-enforced):** Commit only with **explicit paths** — `git add <path1> <path2>` then `git commit -m "..."`, or `git commit -- <path>`. The catch-all forms are mechanically blocked by the `shared-worktree-commit` PreToolUse hook.
+
+**Why rule 2 is a hook but rule 1 is not** (per the Principle 1 matrix): catch-all staging has *high violation cost* — another agent's uncommitted work is silently absorbed or lost, which is hard to recover — and *low false-positive cost*, since an explicit-path commit is always an available, equivalent alternative. That places it squarely in the "Hook" cell. Rule 1's enforcement point (an editor action) has no clean interception trigger, so it remains a rule-file instruction backed by the boot-time reminder.
+
+中文摘要：多个 agent 窗口共用同一本地工作树 + 同一远程仓库时有两类撞车。铁律1（软，仅规则文件）——动共享代码前 `git pull --rebase`，保持历史线性；无干净拦截点，靠规则与 AI 自觉。铁律2（硬，hook 强制）——提交只用显式路径（`git add <path>` + `git commit -m`），catch-all 形式（`git add -A/./commit -a`）被 `shared-worktree-commit` hook 机械拦截，防止把其他 agent 未提交的半成品卷进自己的提交。规则2 适合 hook 化（高违规代价：吞掉他人未提交工作且难恢复 + 低误报：显式路径总是可行替代）；规则1 无自然拦截点，留作规则文件指令。
+
+中文摘要：Hook体系分两类——PreToolUse（执行前拦截：远程写操作拦截、.env保护、CU计数、共享工作树提交拦截）和PostToolUse（执行后记录：agent调用追踪）。设计三原则：只hook高代价低误报的规则、每个hook只执行一条规则、hook故障时优雅降级不阻塞工作。Hook脚本必须只读、有超时、返回退出码。CU计数hook在临近批量限制时自动警告；`shared-worktree-commit` hook 在多 agent 共用工作树时拦截 catch-all 暂存。
 
 ---
 
